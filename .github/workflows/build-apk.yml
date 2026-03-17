@@ -26,12 +26,3 @@ jobs:
         with:
           name: agridic-apk
           path: build/apk/*.apk
-```
-
-2つ保存したら、以下を順番に実行：
-```
-git remote remove origin
-git remote add origin https://github.com/epinine0805/agridic.git
-git add -A
-git commit -m "Initial commit"
-git push -u origin main
