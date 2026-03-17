@@ -1,0 +1,37 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Flet CLI
+        run: pip install flet-cli
+
+      - name: Build APK
+        run: flet build apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: agridic-apk
+          path: build/apk/*.apk
+```
+
+2つ保存したら、以下を順番に実行：
+```
+git remote remove origin
+git remote add origin https://github.com/epinine0805/agridic.git
+git add -A
+git commit -m "Initial commit"
+git push -u origin main

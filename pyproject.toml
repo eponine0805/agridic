@@ -1,0 +1,14 @@
+[project]
+name = "agridic"
+version = "0.1.0"
+description = "Agricultural Disease Information Community"
+requires-python = ">=3.11"
+dependencies = [
+    "flet==0.82.2",
+    "flet-map",
+    "flet-geolocator",
+    "Pillow",
+]
+
+[tool.flet]
+app = "main.py"
