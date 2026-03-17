@@ -9,6 +9,3 @@ dependencies = [
     "flet-geolocator",
     "Pillow",
 ]
-
-[tool.flet.app]
-path = "main.py"
