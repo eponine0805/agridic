@@ -31,3 +31,6 @@ jobs:
         with:
           name: agridic-apk
           path: build/apk/*.apk
+
+      - name: Create Firebase key file
+        run: echo '${{ secrets.FIREBASE_KEY }}' > serviceAccountKey.json
