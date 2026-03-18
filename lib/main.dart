@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'providers/app_state.dart';
 import 'screens/home_screen.dart';
 import 'screens/post_create_screen.dart';
@@ -8,7 +9,9 @@ import 'screens/dictionary_screen.dart';
 import 'screens/map_screen.dart';
 import 'utils/app_colors.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(
     ChangeNotifierProvider(
       create: (_) => AppState(),
