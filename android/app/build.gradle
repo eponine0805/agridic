@@ -27,9 +27,21 @@ android {
         versionName flutter.versionName
     }
 
+    signingConfigs {
+        release {
+            def keystoreFile = file("agridic-release.jks")
+            if (keystoreFile.exists()) {
+                storeFile keystoreFile
+                storePassword System.getenv("KEYSTORE_PASSWORD") ?: "agridic2024"
+                keyAlias "agridic"
+                keyPassword System.getenv("KEY_PASSWORD") ?: "agridic2024"
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled false
             shrinkResources false
         }
