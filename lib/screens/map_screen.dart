@@ -20,13 +20,33 @@ class _MapScreenState extends State<MapScreen> {
   static const _gatanga = LatLng(-0.95, 36.87);
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AppState>().detectLocation();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, state, _) {
+        final center = state.locationReady
+            ? LatLng(state.currentLocation.$1, state.currentLocation.$2)
+            : _gatanga;
+
         final officialPosts = state.visiblePosts.where((p) => p.isOfficial && p.location != null).toList();
         final farmerPosts = state.visiblePosts.where((p) => !p.isOfficial && p.location != null).toList();
 
         final markers = <Marker>[
+          // Current location blue dot
+          if (state.locationReady)
+            Marker(
+              point: center,
+              width: 24,
+              height: 24,
+              child: const _CurrentLocationDot(),
+            ),
           ...officialPosts.map((p) => Marker(
             point: LatLng(p.location!.$1, p.location!.$2),
             width: 36,
@@ -51,7 +71,6 @@ class _MapScreenState extends State<MapScreen> {
           backgroundColor: AppColors.background,
           body: Column(
             children: [
-              // Header
               Container(
                 color: AppColors.primary,
                 child: SafeArea(
@@ -72,28 +91,34 @@ class _MapScreenState extends State<MapScreen> {
                             const Text('Map', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                           ],
                         ),
-                        Text(
-                          '${officialPosts.length} reports',
-                          style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7)),
-                        ),
+                        if (state.isDetectingLocation)
+                          const SizedBox(
+                            width: 14, height: 14,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          )
+                        else
+                          Text(
+                            '${officialPosts.length} reports',
+                            style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7)),
+                          ),
                       ],
                     ),
                   ),
                 ),
               ),
-              // Map
               Expanded(
                 child: Stack(
                   children: [
                     FlutterMap(
-                      options: const MapOptions(
-                        initialCenter: _gatanga,
-                        initialZoom: 10.0,
+                      options: MapOptions(
+                        initialCenter: center,
+                        initialZoom: 11.0,
                       ),
                       children: [
                         TileLayer(
-                          urlTemplate: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+                          urlTemplate: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
                           userAgentPackageName: 'com.agridic.app',
+                          maxZoom: 19,
                         ),
                         MarkerLayer(markers: markers),
                       ],
@@ -111,18 +136,21 @@ class _MapScreenState extends State<MapScreen> {
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            _CurrentLocationDot(),
+                            SizedBox(width: 4),
+                            Text('You', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                            SizedBox(width: 12),
                             Icon(Icons.location_on, color: Color(0xFFD32F2F), size: 16),
                             SizedBox(width: 4),
-                            Text('Official Report', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                            Text('Official', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                             SizedBox(width: 12),
                             Icon(Icons.circle, color: AppColors.accent, size: 10),
                             SizedBox(width: 4),
-                            Text('Farmer Post', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                            Text('Farmer', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
                           ],
                         ),
                       ),
                     ),
-                    // Info panel
                     if (_selectedPost != null)
                       Positioned(
                         left: 12,
@@ -177,6 +205,47 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// Google Maps スタイルの現在地ドット
+class _CurrentLocationDot extends StatelessWidget {
+  const _CurrentLocationDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF4285F4).withOpacity(0.18),
+          ),
+        ),
+        Container(
+          width: 13,
+          height: 13,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 3, spreadRadius: 1),
+            ],
+          ),
+        ),
+        Container(
+          width: 9,
+          height: 9,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: Color(0xFF4285F4),
+          ),
+        ),
+      ],
     );
   }
 }
