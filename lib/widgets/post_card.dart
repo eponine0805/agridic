@@ -36,7 +36,7 @@ class PostCard extends StatelessWidget {
               : null,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
+              color: Colors.black.withOpacity(0.05),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -359,7 +359,7 @@ class _Tag extends StatelessWidget {
         color: AppColors.modeActive,
         borderRadius: BorderRadius.circular(4),
         border:
-            Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+            Border.all(color: AppColors.primary.withOpacity(0.3)),
       ),
       child: Text(label,
           style: const TextStyle(

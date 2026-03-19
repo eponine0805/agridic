@@ -109,7 +109,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       state.formatTime(post.timestamp),
                       style: TextStyle(
                           fontSize: 12,
-                          color: Colors.white.withValues(alpha: 0.7)),
+                          color: Colors.white.withOpacity(0.7)),
                     ),
                   ],
                 ),

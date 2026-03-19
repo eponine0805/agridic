@@ -42,7 +42,8 @@ class _CommentSheetState extends State<CommentSheet> {
     await FirebaseService.addComment(widget.post.postId, comment);
     _ctrl.clear();
     setState(() => _submitting = false);
-    _ = appState; // suppress unused warning
+    // ignore: unused_local_variable
+    final _ = appState; // suppress unused warning
   }
 
   @override

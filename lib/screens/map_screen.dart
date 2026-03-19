@@ -74,7 +74,7 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                         Text(
                           '${officialPosts.length} reports',
-                          style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.7)),
+                          style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7)),
                         ),
                       ],
                     ),
@@ -105,7 +105,7 @@ class _MapScreenState extends State<MapScreen> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.9),
+                          color: Colors.white.withOpacity(0.9),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: const Row(
@@ -146,7 +146,7 @@ class _MapScreenState extends State<MapScreen> {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 4, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4, offset: const Offset(0, 2))],
       ),
       child: Row(
         children: [

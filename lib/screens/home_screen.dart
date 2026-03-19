@@ -164,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(10)),
               border: Border.all(
-                  color: AppColors.primary.withValues(alpha: 0.3)),
+                  color: AppColors.primary.withOpacity(0.3)),
             ),
             child: Row(
               children: [
@@ -234,12 +234,12 @@ class _OfficialSearchCard extends StatelessWidget {
           color: Colors.white,
           border: Border(
             left: const BorderSide(color: AppColors.primary, width: 4),
-            right: BorderSide(color: AppColors.primary.withValues(alpha: 0.2)),
-            bottom: BorderSide(color: AppColors.primary.withValues(alpha: 0.2)),
+            right: BorderSide(color: AppColors.primary.withOpacity(0.2)),
+            bottom: BorderSide(color: AppColors.primary.withOpacity(0.2)),
           ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.08),
+              color: AppColors.primary.withOpacity(0.08),
               blurRadius: 6,
               offset: const Offset(0, 3),
             ),
@@ -327,7 +327,7 @@ class _SmallTag extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.modeActive,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
       ),
       child: Text(label,
           style: const TextStyle(
