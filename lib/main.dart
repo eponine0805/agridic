@@ -101,9 +101,44 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.home, color: Colors.white),
-          onPressed: () => setState(() => _selectedIndex = 0),
+        Consumer<AppState>(
+          builder: (context, state, _) {
+            return PopupMenuButton<String>(
+              icon: state.isSeeding
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Icon(Icons.more_vert, color: Colors.white),
+              onSelected: (value) async {
+                if (value == 'seed') {
+                  final seeded = await state.seedDemoData();
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(seeded
+                        ? 'デモデータを9件 Firestore に追加しました'
+                        : 'すでにデータが存在するためスキップしました'),
+                    backgroundColor: seeded ? AppColors.primary : Colors.grey,
+                    duration: const Duration(seconds: 3),
+                  ));
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'seed',
+                  child: Row(
+                    children: [
+                      Icon(Icons.cloud_upload_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Text('デモデータを投入'),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ],
       elevation: 2,

@@ -73,12 +73,41 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildFeed(AppState state) {
+    if (state.isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: AppColors.primary),
+            SizedBox(height: 16),
+            Text('Firestore から読み込み中…',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          ],
+        ),
+      );
+    }
     if (_searchQuery.isNotEmpty) {
       return _buildSearchResults(state);
     }
     final posts = state.filteredPosts('');
     if (posts.isEmpty) {
-      return const Center(child: Text('No posts yet', style: TextStyle(color: AppColors.textSecondary)));
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.cloud_off_outlined,
+                size: 48, color: AppColors.textSecondary),
+            const SizedBox(height: 12),
+            const Text('投稿がありません',
+                style: TextStyle(
+                    color: AppColors.textSecondary, fontSize: 15)),
+            const SizedBox(height: 8),
+            const Text('右上メニューからデモデータを投入できます',
+                style: TextStyle(
+                    color: AppColors.textSecondary, fontSize: 12)),
+          ],
+        ),
+      );
     }
     return ListView.builder(
       itemCount: posts.length,
