@@ -1,171 +1,401 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post.dart';
+import '../models/report_reason.dart';
 import '../providers/app_state.dart';
+import '../providers/user_prefs.dart';
+import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
+import '../screens/comment_sheet.dart';
 
 class PostCard extends StatelessWidget {
   final Post post;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
-  const PostCard({super.key, required this.post, required this.onTap});
+  const PostCard({super.key, required this.post, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final state = context.read<AppState>();
-    final isExpert = post.userRole == 'expert';
+    final state = context.watch<AppState>();
+    final userPrefs = context.watch<UserPrefs>();
+    final isOfficial = post.isOfficial;
+    final isLiked = post.likedBy.contains(userPrefs.userId);
 
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        color: post.isOfficial ? AppColors.officialBg : AppColors.surface,
-        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          border: Border(
-            bottom: const BorderSide(color: AppColors.divider, width: 1),
-            left: post.isOfficial
-                ? const BorderSide(color: AppColors.primary, width: 3)
-                : BorderSide.none,
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Avatar
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: isExpert ? AppColors.primary : AppColors.accent,
-              child: Text(
-                post.userName.isNotEmpty ? post.userName[0] : '?',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+          color: isOfficial ? AppColors.officialBg : AppColors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: isOfficial
+              ? const Border(
+                  left: BorderSide(color: AppColors.primary, width: 3),
+                )
+              : null,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
-            const SizedBox(width: 12),
-            // Content
-            Expanded(
-              child: Column(
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header row
+              Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header row
-                  Wrap(
-                    spacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      if (post.isOfficial)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: AppColors.modeActive,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
+                  _Avatar(post: post),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                post.userName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 13),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (isOfficial) ...[
+                              const SizedBox(width: 4),
+                              const Icon(Icons.star,
+                                  color: AppColors.verifiedGold, size: 14),
+                              const SizedBox(width: 2),
+                              const Text('公式',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.verifiedGold,
+                                      fontWeight: FontWeight.bold)),
+                            ] else if (post.isVerified) ...[
+                              const SizedBox(width: 4),
+                              const Icon(Icons.verified,
+                                  color: AppColors.primary, size: 14),
+                            ],
+                            const SizedBox(width: 6),
+                            Text(
+                              state.formatTime(post.timestamp),
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          '@${post.userRole}',
+                          style: const TextStyle(
+                              fontSize: 11, color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Three dots menu (report)
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert,
+                          size: 16, color: AppColors.textSecondary),
+                      padding: EdgeInsets.zero,
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: 'report',
+                          child: Row(
                             children: [
-                              Icon(Icons.verified_user, size: 12, color: AppColors.primaryDark),
-                              SizedBox(width: 2),
-                              Text('Official', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.primaryDark)),
+                              Icon(Icons.flag_outlined,
+                                  size: 16, color: AppColors.danger),
+                              SizedBox(width: 8),
+                              Text('通報する',
+                                  style: TextStyle(color: AppColors.danger)),
                             ],
                           ),
                         ),
-                      Text(post.userName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      if (post.isVerified)
-                        Icon(
-                          Icons.verified,
-                          size: 14,
-                          color: post.isOfficial ? AppColors.verifiedGold : AppColors.primary,
-                        ),
-                      Text('@${post.userRole}', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                      const Text('•', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                      Text(state.formatTime(post.timestamp), style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  // Text
-                  Text(post.content.textShort, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary)),
-                  // Image placeholder
-                  if (post.content.imageLow.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F5F5),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(post.content.imageLow, style: const TextStyle(fontSize: 20)),
-                          const SizedBox(width: 6),
-                          const Text('Photo', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                        ],
-                      ),
+                      ],
+                      onSelected: (v) {
+                        if (v == 'report') {
+                          _showReportDialog(context, userPrefs.userId);
+                        }
+                      },
                     ),
-                  ],
-                  // CTA for official
-                  if (post.isOfficial) ...[
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppColors.modeActive,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.menu_book_outlined, size: 14, color: AppColors.primary),
-                          SizedBox(width: 4),
-                          Text('Tap to read full report', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500)),
-                          SizedBox(width: 4),
-                          Icon(Icons.arrow_forward_ios, size: 12, color: AppColors.primary),
-                        ],
-                      ),
-                    ),
-                  ],
-                  // Actions
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.chat_bubble_outline, size: 16),
-                        color: AppColors.textSecondary,
-                        onPressed: () {},
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.favorite_border, size: 16),
-                        color: AppColors.textSecondary,
-                        onPressed: () {},
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.flag_outlined, size: 14, color: AppColors.textSecondary),
-                        label: Text(
-                          'Report (${post.reports})',
-                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                        ),
-                        onPressed: () {
-                          state.reportPost(post);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                post.isHidden
-                                    ? 'Post hidden based on community reports.'
-                                    : 'Reported. (${post.reports}/3)',
-                              ),
-                              backgroundColor: post.isHidden ? AppColors.danger : AppColors.accent,
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              // Content
+              Text(
+                post.content.textShort,
+                style: const TextStyle(fontSize: 14),
+                maxLines: isOfficial ? 2 : 5,
+                overflow: TextOverflow.ellipsis,
+              ),
+              // Thumbnail image
+              if (post.content.imageLow.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _Thumbnail(url: post.content.imageLow),
+              ],
+              // Official CTA
+              if (isOfficial) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.menu_book_outlined,
+                        size: 13, color: AppColors.primary),
+                    const SizedBox(width: 4),
+                    const Text('詳細を読む →',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w500)),
+                    if (post.dictCrop.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      _Tag(label: post.dictCrop),
+                    ],
+                    if (post.dictCategory.isNotEmpty) ...[
+                      const SizedBox(width: 4),
+                      _Tag(label: post.dictCategory),
+                    ],
+                  ],
+                ),
+              ],
+              const SizedBox(height: 6),
+              const Divider(height: 1, color: AppColors.divider),
+              // Action bar
+              Row(
+                children: [
+                  // Comment
+                  _ActionBtn(
+                    icon: Icons.chat_bubble_outline,
+                    label: '',
+                    color: AppColors.textSecondary,
+                    onTap: () => _openComments(context),
+                  ),
+                  const SizedBox(width: 4),
+                  // Like
+                  _ActionBtn(
+                    icon: isLiked ? Icons.favorite : Icons.favorite_border,
+                    label: post.likes > 0 ? '${post.likes}' : '',
+                    color:
+                        isLiked ? AppColors.danger : AppColors.textSecondary,
+                    onTap: () =>
+                        state.toggleLike(post.postId, userPrefs.userId),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openComments(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: context.read<AppState>()),
+          ChangeNotifierProvider.value(value: context.read<UserPrefs>()),
+        ],
+        child: CommentSheet(post: post),
+      ),
+    );
+  }
+
+  Future<void> _showReportDialog(
+      BuildContext context, String userId) async {
+    final already = await FirebaseService.hasReported(post.postId, userId);
+    if (!context.mounted) return;
+    if (already) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('この投稿は既に通報済みです'),
+        backgroundColor: AppColors.textSecondary,
+      ));
+      return;
+    }
+    ReportReason? selected;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+        return AlertDialog(
+          title: const Text('この投稿を通報する'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: ReportReason.values
+                .map((r) => RadioListTile<ReportReason>(
+                      title: Text(r.label),
+                      value: r,
+                      groupValue: selected,
+                      onChanged: (v) => setS(() => selected = v),
+                      activeColor: AppColors.primary,
+                      dense: true,
+                    ))
+                .toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('キャンセル'),
             ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger,
+                  foregroundColor: Colors.white),
+              onPressed: selected == null
+                  ? null
+                  : () async {
+                      Navigator.pop(ctx);
+                      await FirebaseService.reportPost(
+                          post.postId, userId, selected!.name);
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                        content: Text('通報しました。ご協力ありがとうございます。'),
+                        backgroundColor: AppColors.textSecondary,
+                      ));
+                    },
+              child: const Text('通報する'),
+            ),
+          ],
+        );
+      }),
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  final Post post;
+  const _Avatar({required this.post});
+
+  @override
+  Widget build(BuildContext context) {
+    final isExpert = post.userRole == 'expert';
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: isExpert ? AppColors.primary : AppColors.accent,
+      child: Text(
+        post.userName.isNotEmpty ? post.userName[0].toUpperCase() : '?',
+        style: const TextStyle(color: Colors.white, fontSize: 14),
+      ),
+    );
+  }
+}
+
+class _Thumbnail extends StatelessWidget {
+  final String url;
+  const _Thumbnail({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!url.startsWith('http')) {
+      // emoji / placeholder
+      return Container(
+        height: 120,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F5F5),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.image_outlined,
+                  color: AppColors.textSecondary, size: 20),
+              const SizedBox(width: 6),
+              Text(url,
+                  style: const TextStyle(
+                      fontSize: 24, color: AppColors.textSecondary)),
+            ],
+          ),
+        ),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: CachedNetworkImage(
+        imageUrl: url,
+        height: 120,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => Container(
+          height: 120,
+          color: const Color(0xFFF5F5F5),
+          child: const Center(
+              child: CircularProgressIndicator(
+                  color: AppColors.primary, strokeWidth: 2)),
+        ),
+        errorWidget: (_, __, ___) => Container(
+          height: 120,
+          color: const Color(0xFFF5F5F5),
+          child: const Center(
+              child: Icon(Icons.broken_image_outlined,
+                  color: AppColors.textSecondary)),
+        ),
+      ),
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  final String label;
+  const _Tag({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.modeActive,
+        borderRadius: BorderRadius.circular(4),
+        border:
+            Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+      ),
+      child: Text(label,
+          style: const TextStyle(
+              fontSize: 10, color: AppColors.primaryDark)),
+    );
+  }
+}
+
+class _ActionBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ActionBtn({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 17, color: color),
+            if (label.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              Text(label, style: TextStyle(fontSize: 12, color: color)),
+            ],
           ],
         ),
       ),

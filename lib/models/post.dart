@@ -63,6 +63,8 @@ class Post {
   final bool isVerified;
   int reports;
   bool isHidden;
+  int likes;
+  List<String> likedBy;
   final double distanceKm;
   final String viewMode;
   final String dictCrop;
@@ -80,6 +82,8 @@ class Post {
     this.isVerified = false,
     this.reports = 0,
     this.isHidden = false,
+    this.likes = 0,
+    this.likedBy = const [],
     this.distanceKm = 0,
     this.viewMode = 'text',
     this.dictCrop = '',
@@ -106,6 +110,8 @@ class Post {
       isVerified: (m['isVerified'] ?? false) as bool,
       reports: (m['reports'] ?? 0) as int,
       isHidden: (m['isHidden'] ?? false) as bool,
+      likes: (m['likes'] ?? 0) as int,
+      likedBy: List<String>.from(m['likedBy'] ?? []),
       distanceKm: ((m['distanceKm'] as num?) ?? 0).toDouble(),
       viewMode: (m['viewMode'] ?? 'text') as String,
       dictCrop: (m['dictCrop'] ?? '') as String,
@@ -127,6 +133,8 @@ class Post {
         'isVerified': isVerified,
         'reports': reports,
         'isHidden': isHidden,
+        'likes': likes,
+        'likedBy': likedBy,
         'distanceKm': distanceKm,
         'viewMode': viewMode,
         'dictCrop': dictCrop,

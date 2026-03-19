@@ -57,14 +57,9 @@ class AppState extends ChangeNotifier {
         .toList();
   }
 
-  void reportPost(Post post) {
-    post.reports++;
-    if (post.reports >= 3) post.isHidden = true;
-    notifyListeners();
-    FirebaseService.updatePost(post.postId, {
-      'reports': post.reports,
-      'isHidden': post.isHidden,
-    });
+  Future<void> toggleLike(String postId, String userId) async {
+    await FirebaseService.toggleLike(postId, userId);
+    // ストリームが自動で更新
   }
 
   Future<void> addPost(Post post) async {

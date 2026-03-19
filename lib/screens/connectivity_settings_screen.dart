@@ -1,0 +1,213 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/connectivity_prefs.dart';
+import '../utils/app_colors.dart';
+
+class ConnectivitySettingsScreen extends StatefulWidget {
+  final bool isFirstRun;
+  const ConnectivitySettingsScreen({super.key, this.isFirstRun = false});
+
+  @override
+  State<ConnectivitySettingsScreen> createState() =>
+      _ConnectivitySettingsScreenState();
+}
+
+class _ConnectivitySettingsScreenState
+    extends State<ConnectivitySettingsScreen> {
+  late Set<String> _selected;
+
+  static const _options = [
+    (
+      id: 'text',
+      icon: Icons.text_snippet_outlined,
+      label: 'テキストのみ',
+      sub: '最軽量 — 数KBのみ\n電波が弱い・パケット節約',
+      required: true,
+    ),
+    (
+      id: 'manual',
+      icon: Icons.auto_awesome_outlined,
+      label: 'テキスト＋画像',
+      sub: '標準 — 数百KB\n一般的な利用に最適',
+      required: false,
+    ),
+    (
+      id: 'visual',
+      icon: Icons.image_outlined,
+      label: '画像メイン',
+      sub: '高画質 — 数MB\nWiFi環境に推奨',
+      required: false,
+    ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final prefs = context.read<ConnectivityPrefs>();
+    _selected = Set.from(prefs.modes);
+  }
+
+  Future<void> _save() async {
+    await context.read<ConnectivityPrefs>().saveModes(_selected);
+    if (!mounted) return;
+    if (widget.isFirstRun) {
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('設定を保存しました'),
+        backgroundColor: AppColors.primary,
+        duration: Duration(seconds: 2),
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        title: const Text('データダウンロード設定',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        automaticallyImplyLeading: !widget.isFirstRun,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (widget.isFirstRun) ...[
+              const Text('Agridic へようこそ！',
+                  style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primaryDark)),
+              const SizedBox(height: 8),
+            ],
+            const Text(
+              '電波状況に合わせて、ダウンロードするコンテンツを選んでください。\n後からいつでも変更できます。',
+              style:
+                  TextStyle(fontSize: 14, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 24),
+            ..._options.map((opt) {
+              final isOn = _selected.contains(opt.id);
+              return GestureDetector(
+                onTap: opt.required
+                    ? null
+                    : () {
+                        setState(() {
+                          if (isOn) {
+                            _selected.remove(opt.id);
+                          } else {
+                            _selected.add(opt.id);
+                          }
+                        });
+                      },
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: isOn ? AppColors.modeActive : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isOn ? AppColors.primary : AppColors.divider,
+                      width: isOn ? 2 : 1,
+                    ),
+                  ),
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(opt.icon,
+                          color: isOn
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
+                          size: 28),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  opt.label,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                    color: isOn
+                                        ? AppColors.primaryDark
+                                        : AppColors.textPrimary,
+                                  ),
+                                ),
+                                if (opt.required) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text('必須',
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10)),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(opt.sub,
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary)),
+                          ],
+                        ),
+                      ),
+                      Checkbox(
+                        value: isOn,
+                        onChanged: opt.required
+                            ? null
+                            : (_) {
+                                setState(() {
+                                  if (isOn) {
+                                    _selected.remove(opt.id);
+                                  } else {
+                                    _selected.add(opt.id);
+                                  }
+                                });
+                              },
+                        activeColor: AppColors.primary,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+            const Spacer(),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _save,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text(
+                  widget.isFirstRun ? '保存して始める' : '保存',
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

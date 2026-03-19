@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
+import '../providers/user_prefs.dart';
+import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
 
 class PostCreateScreen extends StatefulWidget {
@@ -16,9 +18,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   String _postType = 'tweet'; // 'tweet' or 'report'
   String _activeMode = 'text'; // 'text', 'manual', 'visual'
 
+  bool _submitting = false;
+
   // Tweet fields
   final _tweetTextCtrl = TextEditingController();
-  String _tweetImagePath = '';
+  XFile? _tweetImageFile;
 
   // Report fields
   final _rptTitleCtrl = TextEditingController();
@@ -83,13 +87,19 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   Future<void> _pickTweetImage() async {
     final picker = ImagePicker();
     final file = await picker.pickImage(source: ImageSource.gallery);
-    if (file != null) setState(() => _tweetImagePath = file.path);
+    if (file != null) setState(() => _tweetImageFile = file);
   }
 
-  Future<void> _pickBlockImage(TextEditingController ctrl) async {
+  Future<void> _pickBlockImage(int blockId) async {
     final picker = ImagePicker();
     final file = await picker.pickImage(source: ImageSource.gallery);
-    if (file != null) setState(() => ctrl.text = file.path);
+    if (file != null) {
+      setState(() {
+        final block = _currentBlocks.firstWhere((b) => b['id'] == blockId);
+        block['file'] = file;
+        block['ctrl'].text = file.name;
+      });
+    }
   }
 
   (String, List<String>, List<String>) _blocksToText(List<Map<String, dynamic>> blocks) {
@@ -128,33 +138,53 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     return (lines.join('\n'), images, steps);
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_submitting) return;
     final state = context.read<AppState>();
+    final userPrefs = context.read<UserPrefs>();
+    final postId = 'new_${DateTime.now().millisecondsSinceEpoch}';
 
     if (_postType == 'tweet') {
       if (_tweetTextCtrl.text.trim().isEmpty) {
-        _showError('Please enter some text.');
+        _showError('テキストを入力してください。');
         return;
       }
+      setState(() => _submitting = true);
+
+      String imageLow = '';
+      String imageHigh = '';
+      if (_tweetImageFile != null) {
+        try {
+          final urls =
+              await FirebaseService.uploadImage(postId, _tweetImageFile!);
+          imageLow = urls.low;
+          imageHigh = urls.high;
+        } catch (_) {
+          // upload failed; proceed without image
+        }
+      }
+
       final newPost = Post(
-        postId: 'new_${DateTime.now().millisecondsSinceEpoch}',
+        postId: postId,
         isOfficial: false,
         userRole: 'farmer',
-        userName: 'You',
+        userName: userPrefs.userName,
         content: PostContent(
           textShort: _tweetTextCtrl.text.trim(),
-          imageLow: _tweetImagePath,
-          imageHigh: _tweetImagePath,
+          imageLow: imageLow,
+          imageHigh: imageHigh,
         ),
         timestamp: DateTime.now(),
         location: state.currentLocation,
       );
-      state.addPost(newPost);
+      await state.addPost(newPost);
     } else {
       if (_rptTitleCtrl.text.trim().isEmpty) {
-        _showError('Please enter a headline.');
+        _showError('見出しを入力してください。');
         return;
       }
+      setState(() => _submitting = true);
+
       final headline = _rptTitleCtrl.text.trim();
       final crop = _rptCropCtrl.text.trim();
       final loc = _rptLocationCtrl.text.trim();
@@ -164,13 +194,29 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       if (loc.isNotEmpty) shortParts.add('— $loc');
 
       final activeBlocks = _blocks[_activeMode]!;
+
+      // 画像ブロックをアップロードしてURLに変換
+      for (final block in activeBlocks) {
+        if (block['type'] == 'image' && block['file'] != null) {
+          try {
+            final imgPostId = '${postId}_img_${block['id']}';
+            final urls = await FirebaseService.uploadImage(
+                imgPostId, block['file'] as XFile);
+            // ctrlのテキストをURLに更新
+            (block['ctrl'] as TextEditingController).text = urls.high;
+          } catch (_) {
+            // upload failed; keep original text
+          }
+        }
+      }
+
       final (tf, imgs, steps) = _blocksToText(activeBlocks);
 
       final newPost = Post(
-        postId: 'new_${DateTime.now().millisecondsSinceEpoch}',
+        postId: postId,
         isOfficial: true,
         userRole: 'expert',
-        userName: 'You (Expert)',
+        userName: userPrefs.userName,
         content: PostContent(
           textShort: shortParts.join(' '),
           textFull: tf,
@@ -183,17 +229,20 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         viewMode: _activeMode,
         dictCrop: crop,
       );
-      state.addPost(newPost);
+      await state.addPost(newPost);
     }
 
+    setState(() => _submitting = false);
+    if (!mounted) return;
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Row(
         children: [
           const Icon(Icons.check_circle, color: Colors.white, size: 18),
           const SizedBox(width: 8),
-          Text('${_postType == 'tweet' ? 'Tweet' : 'Report'} posted!',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+          Text('${_postType == 'tweet' ? 'ツイート' : 'レポート'}を投稿しました',
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w500)),
         ],
       ),
       backgroundColor: AppColors.primary,
@@ -230,7 +279,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                           icon: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
                           onPressed: () => Navigator.pop(context),
                         ),
-                        const Text('New Post', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                        const Text('新規投稿', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                       ],
                     ),
                     // Type toggle
@@ -249,8 +298,8 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                         side: const WidgetStatePropertyAll(BorderSide(color: Colors.white54)),
                       ),
                       segments: const [
-                        ButtonSegment(value: 'tweet', label: Text('Tweet')),
-                        ButtonSegment(value: 'report', label: Text('Report')),
+                        ButtonSegment(value: 'tweet', label: Text('ツイート')),
+                        ButtonSegment(value: 'report', label: Text('レポート')),
                       ],
                     ),
                   ],
@@ -272,13 +321,19 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
-                onPressed: _submit,
+                onPressed: _submitting ? null : _submit,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                child: const Text('Submit', style: TextStyle(fontSize: 16)),
+                child: _submitting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
+                    : const Text('投稿する', style: TextStyle(fontSize: 16)),
               ),
             ),
           ),
@@ -295,7 +350,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           children: [
             Icon(Icons.edit_note, size: 20, color: AppColors.primary),
             SizedBox(width: 8),
-            Text('Compose Tweet', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text('ツイートを書く', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
         const SizedBox(height: 12),
@@ -304,7 +359,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           maxLines: 8,
           minLines: 3,
           decoration: InputDecoration(
-            hintText: "What's happening in your farm?",
+            hintText: '畑で何か起きていますか？',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             contentPadding: const EdgeInsets.all(12),
           ),
@@ -313,9 +368,9 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         OutlinedButton.icon(
           onPressed: _pickTweetImage,
           icon: const Icon(Icons.add_a_photo_outlined, size: 16),
-          label: const Text('Add Photo', style: TextStyle(fontSize: 12)),
+          label: const Text('写真を追加', style: TextStyle(fontSize: 12)),
         ),
-        if (_tweetImagePath.isNotEmpty) ...[
+        if (_tweetImageFile != null) ...[
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(8),
@@ -327,9 +382,9 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
               children: [
                 const Icon(Icons.image, color: AppColors.primary, size: 20),
                 const SizedBox(width: 8),
-                Expanded(child: Text(_tweetImagePath, style: const TextStyle(fontSize: 12, color: AppColors.primary))),
+                Expanded(child: Text(_tweetImageFile!.name, style: const TextStyle(fontSize: 12, color: AppColors.primary))),
                 TextButton(
-                  onPressed: () => setState(() => _tweetImagePath = ''),
+                  onPressed: () => setState(() => _tweetImageFile = null),
                   child: const Text('Remove', style: TextStyle(color: AppColors.danger, fontSize: 11)),
                 ),
               ],
@@ -498,8 +553,9 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                           Expanded(
                             child: TextField(
                               controller: ctrl,
+                              readOnly: true,
                               decoration: InputDecoration(
-                                hintText: 'Describe what this image shows...',
+                                hintText: '画像を選択してください…',
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                 isDense: true,
@@ -508,7 +564,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.folder_open_outlined, color: AppColors.primary),
-                            onPressed: () => _pickBlockImage(ctrl),
+                            onPressed: () => _pickBlockImage(id),
                           ),
                         ],
                       )

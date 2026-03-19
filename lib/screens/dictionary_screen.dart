@@ -60,7 +60,9 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   }
 
   List<Post> _getReports(AppState state, String crop, String category) =>
-      _getDictPosts(state).where((p) => p.dictCrop == crop && p.dictCategory == category).toList();
+      _getDictPosts(state)
+          .where((p) => p.dictCrop == crop && p.dictCategory == category)
+          .toList();
 
   void _navigate(String value) {
     setState(() {
@@ -83,7 +85,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   }
 
   String get _title {
-    if (_path.isEmpty) return 'Dictionary';
+    if (_path.isEmpty) return '農業公式ガイド';
     if (_path.length == 1) return _path[0];
     return _path[1];
   }
@@ -102,19 +104,41 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                 child: SafeArea(
                   bottom: false,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                    child: Row(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (_path.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
-                            onPressed: _goBack,
-                          )
-                        else
-                          const SizedBox(width: 8),
-                        const Icon(Icons.menu_book, color: Colors.white, size: 22),
-                        const SizedBox(width: 4),
-                        Text(_title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                        Row(
+                          children: [
+                            if (_path.isNotEmpty)
+                              IconButton(
+                                icon: const Icon(Icons.arrow_back,
+                                    color: Colors.white, size: 20),
+                                onPressed: _goBack,
+                              )
+                            else
+                              const SizedBox(width: 8),
+                            const Icon(Icons.menu_book,
+                                color: Colors.white, size: 22),
+                            const SizedBox(width: 4),
+                            Text(_title,
+                                style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white)),
+                          ],
+                        ),
+                        if (_path.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.only(left: 12, bottom: 4),
+                            child: Text(
+                              'ガタンガ農業事務所 監修・公式データベース',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.white70),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -123,23 +147,31 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
               // Search
               Container(
                 color: AppColors.background,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 8),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
+                  onChanged: (v) =>
+                      setState(() => _searchQuery = v.trim().toLowerCase()),
                   decoration: InputDecoration(
-                    hintText: 'Search official reports...',
+                    hintText: '公式ガイドを検索…',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _searchQuery.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.clear),
-                            onPressed: () { _searchCtrl.clear(); setState(() => _searchQuery = ''); },
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              setState(() => _searchQuery = '');
+                            },
                           )
                         : null,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(25), borderSide: BorderSide.none),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(25),
+                        borderSide: BorderSide.none),
                     filled: true,
                     fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
                   ),
                 ),
               ),
@@ -166,7 +198,9 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   Widget _buildSearchResults(AppState state) {
     final q = _searchQuery;
     final results = _getDictPosts(state).where((p) {
-      final searchable = '${p.content.textShort} ${p.content.textFull} ${p.dictCrop} ${p.dictCategory} ${p.dictTags.join(' ')}'.toLowerCase();
+      final searchable =
+          '${p.content.textShort} ${p.content.textFull} ${p.dictCrop} ${p.dictCategory} ${p.dictTags.join(' ')}'
+              .toLowerCase();
       return searchable.contains(q);
     }).toList();
 
@@ -175,9 +209,16 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.search_off, size: 40, color: AppColors.textSecondary),
+            const Icon(Icons.search_off,
+                size: 40, color: AppColors.textSecondary),
             const SizedBox(height: 8),
-            Text('No reports found for "$_searchQuery"', style: const TextStyle(color: AppColors.textSecondary)),
+            Text('"$_searchQuery" に一致する公式ガイドが見つかりません',
+                style:
+                    const TextStyle(color: AppColors.textSecondary)),
+            const SizedBox(height: 8),
+            const Text('農業事務所にお問い合わせください',
+                style: TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
           ],
         ),
       );
@@ -187,34 +228,44 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text('${results.length} report(s) found', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          child: Text('⭐ ${results.length}件の公式ガイドが見つかりました',
+              style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600)),
         ),
         ...results.map((p) => _listTile(
-          title: p.content.textShort,
-          subtitle: '${_cropIcons[p.dictCrop] ?? '📄'} ${p.dictCrop} → ${p.dictCategory}',
-          leading: const Icon(Icons.verified_user, size: 20, color: AppColors.primary),
-          onTap: () => _openDetail(p),
-        )),
+              title: p.content.textShort,
+              subtitle:
+                  '${_cropIcons[p.dictCrop] ?? '📄'} ${p.dictCrop} → ${p.dictCategory}',
+              leading: const Icon(Icons.star,
+                  size: 18, color: AppColors.verifiedGold),
+              onTap: () => _openDetail(p),
+            )),
       ],
     );
   }
 
   Widget _buildCrops(AppState state) {
     final crops = _getCrops(state);
-    final sortedCrops = crops.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+    final sortedCrops = crops.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
     return ListView(
       children: [
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text('Select a crop', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+          child: Text('作物を選んでください',
+              style: TextStyle(
+                  fontSize: 13, color: AppColors.textSecondary)),
         ),
         ...sortedCrops.map((e) => _listTile(
-          title: e.key,
-          subtitle: '${e.value} report(s) available',
-          leading: Text(_cropIcons[e.key] ?? '🌱', style: const TextStyle(fontSize: 28)),
-          trailing: _countBadge(e.value),
-          onTap: () => _navigate(e.key),
-        )),
+              title: e.key,
+              subtitle: '⭐ ${e.value}件の公式ガイド',
+              leading: Text(_cropIcons[e.key] ?? '🌱',
+                  style: const TextStyle(fontSize: 28)),
+              trailing: _countBadge(e.value),
+              onTap: () => _navigate(e.key),
+            )),
       ],
     );
   }
@@ -230,17 +281,21 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             children: [
               Text(emoji, style: const TextStyle(fontSize: 20)),
               const SizedBox(width: 8),
-              Text(crop, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              Text(crop,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600)),
             ],
           ),
         ),
-        ...(cats.entries.toList()..sort((a, b) => a.key.compareTo(b.key))).map((e) => _listTile(
-          title: e.key,
-          subtitle: '${e.value} report(s)',
-          leading: Icon(_catIcons[e.key] ?? Icons.folder_outlined, size: 22, color: AppColors.primary),
-          trailing: _countBadge(e.value),
-          onTap: () => _navigate(e.key),
-        )),
+        ...(cats.entries.toList()..sort((a, b) => a.key.compareTo(b.key)))
+            .map((e) => _listTile(
+                  title: e.key,
+                  subtitle: '⭐ ${e.value}件',
+                  leading: Icon(_catIcons[e.key] ?? Icons.folder_outlined,
+                      size: 22, color: AppColors.primary),
+                  trailing: _countBadge(e.value),
+                  onTap: () => _navigate(e.key),
+                )),
       ],
     );
   }
@@ -256,16 +311,21 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             children: [
               Text(emoji, style: const TextStyle(fontSize: 18)),
               const SizedBox(width: 8),
-              Text('$crop → $category', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textSecondary)),
+              Text('$crop → $category',
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary)),
             ],
           ),
         ),
         ...reports.map((p) => _listTile(
-          title: p.content.textShort,
-          subtitle: 'by ${p.userName}',
-          leading: const Icon(Icons.verified_user, size: 20, color: AppColors.primary),
-          onTap: () => _openDetail(p),
-        )),
+              title: p.content.textShort,
+              subtitle: 'by ${p.userName}',
+              leading: const Icon(Icons.star,
+                  size: 18, color: AppColors.verifiedGold),
+              onTap: () => _openDetail(p),
+            )),
       ],
     );
   }
@@ -280,10 +340,12 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: const BoxDecoration(
           color: AppColors.surface,
-          border: Border(bottom: BorderSide(color: AppColors.divider, width: 0.5)),
+          border: Border(
+              bottom: BorderSide(color: AppColors.divider, width: 0.5)),
         ),
         child: Row(
           children: [
@@ -293,13 +355,19 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-                  Text(subtitle, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w500)),
+                  Text(subtitle,
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary)),
                 ],
               ),
             ),
             if (trailing != null) trailing,
-            const Icon(Icons.chevron_right, size: 20, color: AppColors.textSecondary),
+            const Icon(Icons.chevron_right,
+                size: 20, color: AppColors.textSecondary),
           ],
         ),
       ),
@@ -309,16 +377,22 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   Widget _countBadge(int count) {
     return Container(
       margin: const EdgeInsets.only(right: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: AppColors.modeActive,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Text('$count', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary)),
+      child: Text('$count',
+          style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary)),
     );
   }
 
   void _openDetail(Post post) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(post: post)));
+    Navigator.push(
+        context, MaterialPageRoute(builder: (_) => DetailScreen(post: post)));
   }
 }

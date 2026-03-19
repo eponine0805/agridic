@@ -1,8 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
+import '../models/comment.dart';
 
 class FirebaseService {
   static final _db = FirebaseFirestore.instance;
+  static final _storage = FirebaseStorage.instance;
   static const _col = 'posts';
 
   /// Firestoreからポスト一覧をリアルタイムストリームで取得
@@ -45,6 +50,116 @@ class FirebaseService {
     }
     await batch.commit();
     return true;
+  }
+
+  // ─── いいね ──────────────────────────────────────────────────
+
+  /// いいねをトグル（済みなら解除、未なら追加）
+  static Future<void> toggleLike(String postId, String userId) async {
+    final ref = _db.collection(_col).doc(postId);
+    final snap = await ref.get();
+    if (!snap.exists) return;
+    final data = snap.data()!;
+    final likedBy = List<String>.from(data['likedBy'] ?? []);
+    if (likedBy.contains(userId)) {
+      await ref.update({
+        'likedBy': FieldValue.arrayRemove([userId]),
+        'likes': FieldValue.increment(-1),
+      });
+    } else {
+      await ref.update({
+        'likedBy': FieldValue.arrayUnion([userId]),
+        'likes': FieldValue.increment(1),
+      });
+    }
+  }
+
+  // ─── コメント ──────────────────────────────────────────────
+
+  static Stream<List<Comment>> streamComments(String postId) {
+    return _db
+        .collection(_col)
+        .doc(postId)
+        .collection('comments')
+        .orderBy('timestamp', descending: false)
+        .snapshots()
+        .map((snap) => snap.docs.map((d) => Comment.fromFirestore(d)).toList());
+  }
+
+  static Future<void> addComment(String postId, Comment comment) async {
+    await _db
+        .collection(_col)
+        .doc(postId)
+        .collection('comments')
+        .add(comment.toFirestore());
+  }
+
+  // ─── 通報 ──────────────────────────────────────────────────
+
+  /// このユーザーが既に通報済みか確認
+  static Future<bool> hasReported(String postId, String userId) async {
+    final snap = await _db
+        .collection(_col)
+        .doc(postId)
+        .collection('reporters')
+        .doc(userId)
+        .get();
+    return snap.exists;
+  }
+
+  /// 通報を記録し、3件以上になったら非表示にする
+  static Future<void> reportPost(
+      String postId, String userId, String reason) async {
+    final reportRef = _db
+        .collection(_col)
+        .doc(postId)
+        .collection('reporters')
+        .doc(userId);
+    await reportRef.set({
+      'reason': reason,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+    // 通報数を確認して閾値を超えたら非表示
+    final reporters = await _db
+        .collection(_col)
+        .doc(postId)
+        .collection('reporters')
+        .get();
+    if (reporters.size >= 3) {
+      await _db.collection(_col).doc(postId).update({'isHidden': true});
+    }
+  }
+
+  // ─── 画像アップロード ────────────────────────────────────────
+
+  /// 画像を低解像度(〜10KB)と高解像度の2種類でStorageにアップロードし
+  /// それぞれのダウンロードURLを返す
+  static Future<({String low, String high})> uploadImage(
+      String postId, XFile file) async {
+    final rawBytes = await file.readAsBytes();
+
+    // 低解像度圧縮 (10KB目標)
+    final lowBytes = await FlutterImageCompress.compressWithList(
+      rawBytes,
+      quality: 15,
+      minWidth: 240,
+      minHeight: 240,
+    );
+
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final lowRef =
+        _storage.ref('images/$postId/low_$timestamp.jpg');
+    final highRef =
+        _storage.ref('images/$postId/high_$timestamp.jpg');
+
+    await Future.wait([
+      lowRef.putData(lowBytes, SettableMetadata(contentType: 'image/jpeg')),
+      highRef.putData(rawBytes, SettableMetadata(contentType: 'image/jpeg')),
+    ]);
+
+    final lowUrl = await lowRef.getDownloadURL();
+    final highUrl = await highRef.getDownloadURL();
+    return (low: lowUrl, high: highUrl);
   }
 
   static List<Post> _demoData() {

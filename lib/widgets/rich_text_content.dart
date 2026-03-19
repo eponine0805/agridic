@@ -1,28 +1,33 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/app_colors.dart';
 
 class RichTextContent extends StatelessWidget {
   final String text;
   final List<String> images;
   final bool stripImages;
+  /// true のとき画像をフル解像度で表示（CachedNetworkImage使用）
+  final bool useHighRes;
 
   const RichTextContent({
     super.key,
     required this.text,
     this.images = const [],
     this.stripImages = false,
+    this.useHighRes = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final widgets = _parseRichText(text, images, stripImages);
+    final widgets = _parseRichText(text, images, stripImages, useHighRes);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: widgets,
     );
   }
 
-  static List<Widget> _parseRichText(String text, List<String> images, bool stripImages) {
+  static List<Widget> _parseRichText(
+      String text, List<String> images, bool stripImages, bool useHighRes) {
     if (text.isEmpty) return [];
     final List<Widget> result = [];
 
@@ -64,7 +69,9 @@ class RichTextContent extends StatelessWidget {
           final idx = int.parse(idxStr) - 1;
           if (idx >= 0 && idx < images.length) {
             final imgPath = images[idx];
-            result.add(_buildImagePlaceholder(imgPath, idx + 1));
+            result.add(useHighRes
+                ? _buildNetworkImage(imgPath)
+                : _buildImagePlaceholder(imgPath, idx + 1));
           }
         } catch (_) {
           result.add(Text(stripped, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary)));
@@ -95,6 +102,37 @@ class RichTextContent extends StatelessWidget {
       }
     }
     return result;
+  }
+
+  static Widget _buildNetworkImage(String url) {
+    if (!url.startsWith('http')) {
+      return _buildImagePlaceholder(url, 0);
+    }
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: CachedNetworkImage(
+          imageUrl: url,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          placeholder: (_, __) => Container(
+            height: 180,
+            color: const Color(0xFFF5F5F5),
+            child: const Center(
+                child: CircularProgressIndicator(
+                    color: AppColors.primary, strokeWidth: 2)),
+          ),
+          errorWidget: (_, __, ___) => Container(
+            height: 100,
+            color: const Color(0xFFF5F5F5),
+            child: const Center(
+                child: Icon(Icons.broken_image_outlined,
+                    color: AppColors.textSecondary)),
+          ),
+        ),
+      ),
+    );
   }
 
   static Widget _buildImagePlaceholder(String imgPath, int num) {
