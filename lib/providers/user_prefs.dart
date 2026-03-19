@@ -7,8 +7,6 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 class UserPrefs extends ChangeNotifier {
   static const _keyFirstLoginDone = 'dict_first_download_done';
-  // This email is automatically granted admin on first sign-in
-  static const _designatedAdminEmail = 'umaumaseilrou@gmail.com';
 
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
@@ -61,16 +59,28 @@ class UserPrefs extends ChangeNotifier {
       } else {
         _role = 'farmer';
       }
-      // Auto-grant admin to the designated admin email
-      if (_user?.email == _designatedAdminEmail && _role != 'admin') {
-        await _db
-            .collection('users')
-            .doc(uid)
-            .set({'role': 'admin'}, SetOptions(merge: true));
-        _role = 'admin';
-      }
     } catch (_) {
       _role = 'farmer';
+    }
+  }
+
+  /// Claim admin if no admin exists yet. Returns true if claimed.
+  Future<bool> _tryClaimFirstAdmin(String uid) async {
+    try {
+      final existing = await _db
+          .collection('users')
+          .where('role', isEqualTo: 'admin')
+          .limit(1)
+          .get();
+      if (existing.docs.isNotEmpty) return false;
+      await _db
+          .collection('users')
+          .doc(uid)
+          .set({'role': 'admin'}, SetOptions(merge: true));
+      _role = 'admin';
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -108,6 +118,8 @@ class UserPrefs extends ChangeNotifier {
             'email': user.email ?? '',
             'createdAt': FieldValue.serverTimestamp(),
           });
+          // First user to sign up becomes admin automatically
+          await _tryClaimFirstAdmin(user.uid);
         }
       }
       return null;
@@ -116,7 +128,8 @@ class UserPrefs extends ChangeNotifier {
     } catch (e) {
       final msg = e.toString();
       if (msg.contains('cancel') || msg.contains('Cancel')) return null;
-      return 'Google sign-in failed';
+      // Surface the raw error so the user knows what went wrong
+      return msg;
     }
   }
 
@@ -133,6 +146,8 @@ class UserPrefs extends ChangeNotifier {
         'email': email.trim(),
         'createdAt': FieldValue.serverTimestamp(),
       });
+      // First user to register becomes admin automatically
+      await _tryClaimFirstAdmin(cred.user!.uid);
       return null;
     } on FirebaseAuthException catch (e) {
       return e.message ?? 'Registration failed';
