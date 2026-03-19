@@ -65,9 +65,24 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
       final prefs = await SharedPreferences.getInstance();
       final jsonList = <String>[];
       for (final post in posts) {
-        jsonList.add(jsonEncode(post.toFirestore()..['postId'] = post.postId));
+        // Store only JSON-safe fields (no Timestamp/FieldValue objects)
+        final entry = {
+          'postId': post.postId,
+          'userId': post.userId,
+          'isOfficial': post.isOfficial,
+          'userRole': post.userRole,
+          'userName': post.userName,
+          'dictCrop': post.dictCrop,
+          'dictCategory': post.dictCategory,
+          'dictTags': post.dictTags,
+          'inDictionary': post.inDictionary,
+          'textShort': post.content.textShort,
+          'textFull': post.content.textFull,
+          'imageLow': post.content.imageLow,
+          'steps': post.content.steps,
+        };
+        jsonList.add(jsonEncode(entry));
         if (mounted) setState(() => _downloadedCount++);
-        // small yield to allow UI to update
         await Future.delayed(const Duration(milliseconds: 10));
       }
       await prefs.setStringList('dict_cache', jsonList);
