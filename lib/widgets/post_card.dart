@@ -93,11 +93,7 @@ class PostCard extends StatelessWidget {
                             ),
                           ],
                         ),
-                        Text(
-                          '@${post.userRole}',
-                          style: const TextStyle(
-                              fontSize: 11, color: AppColors.textSecondary),
-                        ),
+                        _RoleBadge(role: post.userRole),
                       ],
                     ),
                   ),
@@ -171,18 +167,19 @@ class PostCard extends StatelessWidget {
                             ),
                           ),
                         ],
-                        const PopupMenuItem(
-                          value: 'report',
-                          child: Row(
-                            children: [
-                              Icon(Icons.flag_outlined,
-                                  size: 16, color: AppColors.danger),
-                              SizedBox(width: 8),
-                              Text('Report post',
-                                  style: TextStyle(color: AppColors.danger)),
-                            ],
+                        if (!isOwner)
+                          const PopupMenuItem(
+                            value: 'report',
+                            child: Row(
+                              children: [
+                                Icon(Icons.flag_outlined,
+                                    size: 16, color: AppColors.danger),
+                                SizedBox(width: 8),
+                                Text('Report post',
+                                    style: TextStyle(color: AppColors.danger)),
+                              ],
+                            ),
                           ),
-                        ),
                       ],
                       onSelected: (v) {
                         if (v == 'report') {
@@ -381,6 +378,33 @@ class PostCard extends StatelessWidget {
           ],
         );
       }),
+    );
+  }
+}
+
+class _RoleBadge extends StatelessWidget {
+  final String role;
+  const _RoleBadge({required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color, label) = switch (role) {
+      'admin' => (Icons.admin_panel_settings, AppColors.danger, '@admin'),
+      'expert' => (Icons.verified, AppColors.primary, '@expert'),
+      _ => (null, AppColors.textSecondary, '@farmer'),
+    };
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 2),
+        ],
+        Text(
+          label,
+          style: TextStyle(fontSize: 11, color: color),
+        ),
+      ],
     );
   }
 }

@@ -205,8 +205,8 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
       actions: [
-        Consumer<AppState>(
-          builder: (context, state, _) {
+        Consumer2<AppState, UserPrefs>(
+          builder: (context, state, userPrefs, _) {
             return PopupMenuButton<String>(
               icon: state.isSeeding
                   ? const SizedBox(
@@ -237,8 +237,8 @@ class _MainShellState extends State<MainShell> {
                   ));
                 }
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(
+              itemBuilder: (_) => [
+                const PopupMenuItem(
                   value: 'settings',
                   child: Row(
                     children: [
@@ -248,16 +248,17 @@ class _MainShellState extends State<MainShell> {
                     ],
                   ),
                 ),
-                PopupMenuItem(
-                  value: 'seed',
-                  child: Row(
-                    children: [
-                      Icon(Icons.cloud_upload_outlined, size: 18),
-                      SizedBox(width: 8),
-                      Text('Seed demo data'),
-                    ],
+                if (userPrefs.isAdmin)
+                  const PopupMenuItem(
+                    value: 'seed',
+                    child: Row(
+                      children: [
+                        Icon(Icons.cloud_upload_outlined, size: 18),
+                        SizedBox(width: 8),
+                        Text('Seed demo data'),
+                      ],
+                    ),
                   ),
-                ),
               ],
             );
           },
@@ -310,8 +311,6 @@ class _ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<_ProfileScreen> {
-  bool _claimingAdmin = false;
-
   Future<void> _editDisplayName() async {
     final userPrefs = context.read<UserPrefs>();
     final ctrl = TextEditingController(text: userPrefs.userName);
@@ -352,30 +351,6 @@ class _ProfileScreenState extends State<_ProfileScreen> {
       }
     }
     ctrl.dispose();
-  }
-
-  Future<void> _claimAdmin() async {
-    setState(() => _claimingAdmin = true);
-    final userPrefs = context.read<UserPrefs>();
-    final success = await FirebaseService.claimFirstAdmin(userPrefs.userId);
-    if (!mounted) return;
-    if (success) {
-      // Reload role from Firestore
-      await userPrefs.reloadRole();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Admin privileges granted to your account'),
-        backgroundColor: AppColors.primary,
-        duration: Duration(seconds: 3),
-      ));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('An admin already exists. Ask them to grant you access.'),
-        backgroundColor: AppColors.textSecondary,
-        duration: Duration(seconds: 3),
-      ));
-    }
-    setState(() => _claimingAdmin = false);
   }
 
   Color _roleColor(String role) => switch (role) {
@@ -487,7 +462,29 @@ class _ProfileScreenState extends State<_ProfileScreen> {
               ),
             ),
           ),
+          // ── Admin Panel ──────────────────────────────
           if (isAdmin) ...[
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.danger.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.danger.withOpacity(0.2)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.admin_panel_settings,
+                      size: 16, color: AppColors.danger),
+                  const SizedBox(width: 6),
+                  const Text('Admin Panel',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.danger)),
+                ],
+              ),
+            ),
             const SizedBox(height: 8),
             _SettingsTile(
               icon: Icons.manage_accounts_outlined,
@@ -506,27 +503,6 @@ class _ProfileScreenState extends State<_ProfileScreen> {
           const SizedBox(height: 16),
           const Divider(),
           const SizedBox(height: 8),
-          // Claim first admin (only shown when not already admin)
-          if (!isAdmin) ...[
-            ListTile(
-              leading: _claimingAdmin
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: AppColors.textSecondary))
-                  : const Icon(Icons.shield_outlined,
-                      size: 20, color: AppColors.textSecondary),
-              title: const Text('Claim admin (first time only)',
-                  style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
-              subtitle: const Text(
-                  'Only works if no admin exists yet',
-                  style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-              contentPadding: EdgeInsets.zero,
-              onTap: _claimingAdmin ? null : _claimAdmin,
-            ),
-            const SizedBox(height: 8),
-          ],
           _SettingsTile(
             icon: Icons.logout,
             label: 'Sign out',
