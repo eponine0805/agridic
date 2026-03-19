@@ -312,6 +312,48 @@ class _ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<_ProfileScreen> {
   bool _claimingAdmin = false;
 
+  Future<void> _editDisplayName() async {
+    final userPrefs = context.read<UserPrefs>();
+    final ctrl = TextEditingController(text: userPrefs.userName);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit display name'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Display name',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      final err = await userPrefs.updateDisplayName(ctrl.text);
+      if (!mounted) return;
+      if (err != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(err),
+          backgroundColor: AppColors.danger,
+        ));
+      }
+    }
+    ctrl.dispose();
+  }
+
   Future<void> _claimAdmin() async {
     setState(() => _claimingAdmin = true);
     final userPrefs = context.read<UserPrefs>();
@@ -370,12 +412,23 @@ class _ProfileScreenState extends State<_ProfileScreen> {
           ),
           const SizedBox(height: 12),
           Center(
-            child: Text(
-              userPrefs.userName,
-              style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary),
+            child: GestureDetector(
+              onTap: _editDisplayName,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    userPrefs.userName,
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary),
+                  ),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.edit_outlined,
+                      size: 16, color: AppColors.textSecondary),
+                ],
+              ),
             ),
           ),
           Center(

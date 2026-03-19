@@ -3,12 +3,16 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class UserPrefs extends ChangeNotifier {
   static const _keyFirstLoginDone = 'dict_first_download_done';
+  // This email is automatically granted admin on first sign-in
+  static const _designatedAdminEmail = 'umaumaseilrou@gmail.com';
 
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
+  final _googleSignIn = GoogleSignIn();
   StreamSubscription<User?>? _authSub;
 
   User? _user;
@@ -57,6 +61,14 @@ class UserPrefs extends ChangeNotifier {
       } else {
         _role = 'farmer';
       }
+      // Auto-grant admin to the designated admin email
+      if (_user?.email == _designatedAdminEmail && _role != 'admin') {
+        await _db
+            .collection('users')
+            .doc(uid)
+            .set({'role': 'admin'}, SetOptions(merge: true));
+        _role = 'admin';
+      }
     } catch (_) {
       _role = 'farmer';
     }
@@ -70,6 +82,41 @@ class UserPrefs extends ChangeNotifier {
       return null;
     } on FirebaseAuthException catch (e) {
       return e.message ?? 'Sign in failed';
+    }
+  }
+
+  /// Sign in with Google. Returns null on success, error message on failure.
+  Future<String?> signInWithGoogle() async {
+    try {
+      final googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) return null; // user cancelled
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      final userCredential = await _auth.signInWithCredential(credential);
+      final user = userCredential.user;
+      if (user != null) {
+        // Ensure user document exists in Firestore
+        final doc = await _db.collection('users').doc(user.uid).get();
+        if (!doc.exists) {
+          await _db.collection('users').doc(user.uid).set({
+            'role': 'farmer',
+            'userName':
+                user.displayName ?? user.email?.split('@').first ?? 'User',
+            'email': user.email ?? '',
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+      return null;
+    } on FirebaseAuthException catch (e) {
+      return e.message ?? 'Google sign-in failed';
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('cancel') || msg.contains('Cancel')) return null;
+      return 'Google sign-in failed';
     }
   }
 
@@ -93,6 +140,7 @@ class UserPrefs extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    await _googleSignIn.signOut();
     await _auth.signOut();
   }
 
@@ -101,6 +149,21 @@ class UserPrefs extends ChangeNotifier {
     if (_user == null) return;
     await _loadRole(_user!.uid);
     notifyListeners();
+  }
+
+  /// Update display name in Firebase Auth and Firestore
+  Future<String?> updateDisplayName(String newName) async {
+    final name = newName.trim();
+    if (name.isEmpty) return 'Name cannot be empty';
+    try {
+      await _user?.updateDisplayName(name);
+      await _db.collection('users').doc(_user!.uid).set(
+          {'userName': name}, SetOptions(merge: true));
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to update name';
+    }
   }
 
   Future<void> markFirstDownloadDone() async {

@@ -58,7 +58,6 @@ class _LoginScreenState extends State<LoginScreen>
       _busy = false;
       _error = err;
     });
-    // On success _error is null; parent router will navigate away
   }
 
   Future<void> _register() async {
@@ -78,6 +77,19 @@ class _LoginScreenState extends State<LoginScreen>
       _error = null;
     });
     final err = await context.read<UserPrefs>().register(email, pass, name);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = err;
+    });
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final err = await context.read<UserPrefs>().signInWithGoogle();
     if (!mounted) return;
     setState(() {
       _busy = false;
@@ -153,6 +165,35 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Google Sign-In
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: OutlinedButton(
+                  onPressed: _busy ? null : _signInWithGoogle,
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFFDDDDDD)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    backgroundColor: Colors.white,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _GoogleIcon(),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'Continue with Google',
+                        style: TextStyle(
+                            fontSize: 15,
+                            color: Color(0xFF444444),
+                            fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               if (_error != null) ...[
@@ -305,4 +346,50 @@ class _LoginScreenState extends State<LoginScreen>
       ),
     );
   }
+}
+
+/// Minimal Google "G" icon drawn with CustomPaint
+class _GoogleIcon extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 20,
+      height: 20,
+      child: CustomPaint(painter: _GoogleGPainter()),
+    );
+  }
+}
+
+class _GoogleGPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final r = size.width / 2;
+    final cx = r, cy = r;
+    final rect = Rect.fromCircle(center: Offset(cx, cy), radius: r);
+
+    // Blue segment (top)
+    canvas.drawArc(rect, -1.57, 2.09, false,
+        Paint()..color = const Color(0xFF4285F4)..strokeWidth = size.width * 0.18..style = PaintingStyle.stroke..strokeCap = StrokeCap.butt);
+    // Red segment
+    canvas.drawArc(rect, 0.52, 1.05, false,
+        Paint()..color = const Color(0xFFEA4335)..strokeWidth = size.width * 0.18..style = PaintingStyle.stroke..strokeCap = StrokeCap.butt);
+    // Yellow segment
+    canvas.drawArc(rect, 1.57, 1.05, false,
+        Paint()..color = const Color(0xFFFBBC05)..strokeWidth = size.width * 0.18..style = PaintingStyle.stroke..strokeCap = StrokeCap.butt);
+    // Green segment
+    canvas.drawArc(rect, 2.62, 1.05, false,
+        Paint()..color = const Color(0xFF34A853)..strokeWidth = size.width * 0.18..style = PaintingStyle.stroke..strokeCap = StrokeCap.butt);
+
+    // White fill center
+    canvas.drawCircle(Offset(cx, cy), r * 0.65,
+        Paint()..color = Colors.white);
+
+    // Blue right bar of "G"
+    canvas.drawRect(
+        Rect.fromLTWH(cx, cy - size.height * 0.08, r * 0.9, size.height * 0.16),
+        Paint()..color = const Color(0xFF4285F4));
+  }
+
+  @override
+  bool shouldRepaint(_) => false;
 }

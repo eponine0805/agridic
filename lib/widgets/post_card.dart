@@ -127,6 +127,28 @@ class PostCard extends StatelessWidget {
                         ],
                         if (isAdmin) ...[
                           PopupMenuItem(
+                            value: 'star',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  post.isOfficial
+                                      ? Icons.star
+                                      : Icons.star_outline,
+                                  size: 16,
+                                  color: AppColors.verifiedGold,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  post.isOfficial
+                                      ? 'Unstar post'
+                                      : 'Star post',
+                                  style: const TextStyle(
+                                      color: AppColors.verifiedGold),
+                                ),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
                             value: 'dict',
                             child: Row(
                               children: [
@@ -169,6 +191,8 @@ class PostCard extends StatelessWidget {
                           _toggleDictionary(context);
                         } else if (v == 'delete') {
                           _confirmDelete(context);
+                        } else if (v == 'star') {
+                          _toggleStar();
                         }
                       },
                     ),
@@ -265,6 +289,11 @@ class PostCard extends StatelessWidget {
     if (confirmed == true) {
       await FirebaseService.deletePost(post.postId);
     }
+  }
+
+  Future<void> _toggleStar() async {
+    await FirebaseService.updatePost(
+        post.postId, {'isOfficial': !post.isOfficial});
   }
 
   void _toggleDictionary(BuildContext context) {
