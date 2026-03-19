@@ -16,6 +16,12 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  String _cropFilter = '';
+  String _typeFilter = 'all';
+  String _sortOption = 'newest';
+
+  static const _crops = ['', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
+  static const _cropLabels = ['All', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
 
   @override
   void dispose() {
@@ -32,35 +38,171 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _searchQuery = '');
   }
 
+  void _showSortSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
+                child: Text('Sort by',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              for (final entry in const [
+                ('newest', Icons.schedule, 'Newest first'),
+                ('likes', Icons.favorite_outline, 'Most liked'),
+                ('distance', Icons.near_me_outlined, 'Closest first'),
+              ])
+                ListTile(
+                  leading: Icon(entry.$2,
+                      color: _sortOption == entry.$1
+                          ? AppColors.primary
+                          : AppColors.textSecondary),
+                  title: Text(entry.$3,
+                      style: TextStyle(
+                          fontWeight: _sortOption == entry.$1
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: _sortOption == entry.$1
+                              ? AppColors.primary
+                              : AppColors.textPrimary)),
+                  trailing: _sortOption == entry.$1
+                      ? const Icon(Icons.check, color: AppColors.primary, size: 18)
+                      : null,
+                  onTap: () {
+                    setState(() => _sortOption = entry.$1);
+                    Navigator.pop(context);
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Search bar
         Container(
           color: AppColors.background,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: TextField(
-            controller: _searchController,
-            onChanged: _onSearch,
-            onSubmitted: _onSearch,
-            decoration: InputDecoration(
-              hintText: 'Search pests, crops, diseases…',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: _resetSearch,
-                    )
-                  : null,
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(25),
-                  borderSide: BorderSide.none),
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            ),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Column(
+            children: [
+              // Search bar + sort button
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: _onSearch,
+                      onSubmitted: _onSearch,
+                      decoration: InputDecoration(
+                        hintText: 'Search pests, crops, diseases…',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: _resetSearch,
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(25),
+                            borderSide: BorderSide.none),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: _showSortSheet,
+                    icon: const Icon(Icons.sort),
+                    color: _sortOption != 'newest'
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    tooltip: 'Sort',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Crop filter chips + type toggle
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (int i = 0; i < _crops.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: FilterChip(
+                          label: Text(_cropLabels[i],
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: _cropFilter == _crops[i]
+                                      ? Colors.white
+                                      : AppColors.textSecondary)),
+                          selected: _cropFilter == _crops[i],
+                          onSelected: (_) =>
+                              setState(() => _cropFilter = _crops[i]),
+                          selectedColor: AppColors.primary,
+                          checkmarkColor: Colors.white,
+                          backgroundColor: Colors.white,
+                          side: BorderSide(
+                              color: _cropFilter == _crops[i]
+                                  ? AppColors.primary
+                                  : AppColors.divider),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    const SizedBox(
+                      height: 20,
+                      child: VerticalDivider(color: AppColors.divider, width: 1),
+                    ),
+                    const SizedBox(width: 8),
+                    for (final entry in const [
+                      ('all', 'All'),
+                      ('official', 'Official'),
+                      ('community', 'Community'),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                          label: Text(entry.$2,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: _typeFilter == entry.$1
+                                      ? Colors.white
+                                      : AppColors.textSecondary)),
+                          selected: _typeFilter == entry.$1,
+                          onSelected: (_) =>
+                              setState(() => _typeFilter = entry.$1),
+                          selectedColor: AppColors.accent,
+                          backgroundColor: Colors.white,
+                          side: BorderSide(
+                              color: _typeFilter == entry.$1
+                                  ? AppColors.accent
+                                  : AppColors.divider),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
           ),
         ),
         // Feed
@@ -90,10 +232,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-    if (_searchQuery.isNotEmpty) {
+    if (_searchQuery.isNotEmpty || _cropFilter.isNotEmpty || _typeFilter != 'all') {
       return _buildSearchResults(state);
     }
-    final posts = state.filteredPosts('');
+    final posts = state.filteredPosts('', sort: _sortOption);
     if (posts.isEmpty) {
       return Center(
         child: Column(
@@ -130,13 +272,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSearchResults(AppState state) {
-    final all = state.filteredPosts(_searchQuery);
-    final officials = all.where((p) => p.isOfficial).toList()
-      ..sort((a, b) =>
-          (b.timestamp ?? DateTime(0)).compareTo(a.timestamp ?? DateTime(0)));
-    final farmers = all.where((p) => !p.isOfficial).toList()
-      ..sort((a, b) =>
-          (b.timestamp ?? DateTime(0)).compareTo(a.timestamp ?? DateTime(0)));
+    final all = state.filteredPosts(
+      _searchQuery,
+      crop: _cropFilter,
+      type: _typeFilter,
+      sort: _sortOption,
+    );
+    final officials = all.where((p) => p.isOfficial).toList();
+    final farmers = all.where((p) => !p.isOfficial).toList();
 
     if (all.isEmpty) {
       return Center(

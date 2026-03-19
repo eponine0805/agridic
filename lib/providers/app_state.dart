@@ -69,21 +69,53 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<Post> filteredPosts(String query) {
-    if (query.isEmpty) {
-      final all = visiblePosts.toList();
-      all.sort((a, b) =>
-          (b.timestamp ?? DateTime(0)).compareTo(a.timestamp ?? DateTime(0)));
-      return all;
+  List<Post> filteredPosts(
+    String query, {
+    String crop = '',
+    String type = 'all',
+    String sort = 'newest',
+  }) {
+    var result = visiblePosts.toList();
+
+    if (query.isNotEmpty) {
+      final q = query.toLowerCase();
+      result = result
+          .where((p) =>
+              p.content.textShort.toLowerCase().contains(q) ||
+              p.content.textFull.toLowerCase().contains(q) ||
+              p.userName.toLowerCase().contains(q) ||
+              p.dictTags.any((t) => t.toLowerCase().contains(q)))
+          .toList();
     }
-    final q = query.toLowerCase();
-    return visiblePosts
-        .where((p) =>
-            p.content.textShort.toLowerCase().contains(q) ||
-            p.content.textFull.toLowerCase().contains(q) ||
-            p.userName.toLowerCase().contains(q) ||
-            p.dictTags.any((t) => t.toLowerCase().contains(q)))
-        .toList();
+
+    if (crop.isNotEmpty) {
+      result = result.where((p) => p.dictCrop == crop).toList();
+    }
+
+    if (type == 'official') {
+      result = result.where((p) => p.isOfficial).toList();
+    } else if (type == 'community') {
+      result = result.where((p) => !p.isOfficial).toList();
+    }
+
+    switch (sort) {
+      case 'likes':
+        result.sort((a, b) => b.likes.compareTo(a.likes));
+      case 'distance':
+        result.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+      default:
+        result.sort((a, b) =>
+            (b.timestamp ?? DateTime(0)).compareTo(a.timestamp ?? DateTime(0)));
+    }
+
+    return result;
+  }
+
+  List<Post> postsBy(String userId) {
+    final result = _posts.where((p) => p.userId == userId).toList();
+    result.sort((a, b) =>
+        (b.timestamp ?? DateTime(0)).compareTo(a.timestamp ?? DateTime(0)));
+    return result;
   }
 
   Future<void> toggleLike(String postId, String userId) async {

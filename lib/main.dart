@@ -13,8 +13,10 @@ import 'screens/login_screen.dart';
 import 'screens/connectivity_settings_screen.dart';
 import 'screens/dict_download_screen.dart';
 import 'screens/admin_users_screen.dart';
+import 'screens/detail_screen.dart';
 import 'services/firebase_service.dart';
 import 'utils/app_colors.dart';
+import 'widgets/post_card.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -362,7 +364,10 @@ class _ProfileScreenState extends State<_ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final userPrefs = context.watch<UserPrefs>();
+    final appState = context.watch<AppState>();
     final isAdmin = userPrefs.isAdmin;
+    final myPosts = appState.postsBy(userPrefs.userId);
+    final totalLikes = myPosts.fold<int>(0, (sum, p) => sum + p.likes);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -433,7 +438,54 @@ class _ProfileScreenState extends State<_ProfileScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 20),
+          // Stats card
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  icon: Icons.article_outlined,
+                  value: '${myPosts.length}',
+                  label: 'Posts',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _StatCard(
+                  icon: Icons.favorite_outline,
+                  value: '$totalLikes',
+                  label: 'Likes received',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          // My Posts section
+          const Text('My Posts',
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary)),
+          const SizedBox(height: 8),
+          if (myPosts.isEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              alignment: Alignment.center,
+              child: const Text('No posts yet',
+                  style: TextStyle(
+                      fontSize: 13, color: AppColors.textSecondary)),
+            )
+          else
+            for (final post in myPosts)
+              PostCard(
+                post: post,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => DetailScreen(post: post)),
+                ),
+              ),
+          const SizedBox(height: 16),
           const Divider(),
           const SizedBox(height: 8),
           _SettingsTile(
@@ -516,6 +568,41 @@ class _ProfileScreenState extends State<_ProfileScreen> {
               );
             },
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+
+  const _StatCard({required this.icon, required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: AppColors.primary, size: 22),
+          const SizedBox(height: 6),
+          Text(value,
+              style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary)),
+          const SizedBox(height: 2),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 11, color: AppColors.textSecondary)),
         ],
       ),
     );

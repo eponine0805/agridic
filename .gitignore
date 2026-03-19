@@ -1,3 +1,5 @@
+changes.patch
+
 # Keystore files (managed via GitHub Secrets)
 android/app/*.jks
 android/app/*.keystore
