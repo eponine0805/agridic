@@ -20,22 +20,22 @@ class _ConnectivitySettingsScreenState
     (
       id: 'text',
       icon: Icons.text_snippet_outlined,
-      label: 'テキストのみ',
-      sub: '最軽量 — 数KBのみ\n電波が弱い・パケット節約',
+      label: 'Text only',
+      sub: 'Lightest — a few KB only\nFor weak signal or data saving',
       required: true,
     ),
     (
       id: 'manual',
       icon: Icons.auto_awesome_outlined,
-      label: 'テキスト＋画像',
-      sub: '標準 — 数百KB\n一般的な利用に最適',
+      label: 'Text + Images',
+      sub: 'Standard — a few hundred KB\nBest for everyday use',
       required: false,
     ),
     (
       id: 'visual',
       icon: Icons.image_outlined,
-      label: '画像メイン',
-      sub: '高画質 — 数MB\nWiFi環境に推奨',
+      label: 'Image-based reports',
+      sub: 'Image-heavy — a few MB\nRecommended on Wi-Fi',
       required: false,
     ),
   ];
@@ -55,7 +55,7 @@ class _ConnectivitySettingsScreenState
     } else {
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('設定を保存しました'),
+        content: Text('Settings saved'),
         backgroundColor: AppColors.primary,
         duration: Duration(seconds: 2),
       ));
@@ -69,7 +69,7 @@ class _ConnectivitySettingsScreenState
       appBar: AppBar(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
-        title: const Text('データダウンロード設定',
+        title: const Text('Download settings',
             style: TextStyle(fontWeight: FontWeight.bold)),
         automaticallyImplyLeading: !widget.isFirstRun,
       ),
@@ -79,7 +79,7 @@ class _ConnectivitySettingsScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (widget.isFirstRun) ...[
-              const Text('Agridic へようこそ！',
+              const Text('Welcome to Agridic!',
                   style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
@@ -87,7 +87,7 @@ class _ConnectivitySettingsScreenState
               const SizedBox(height: 8),
             ],
             const Text(
-              '電波状況に合わせて、ダウンロードするコンテンツを選んでください。\n後からいつでも変更できます。',
+              'Choose which content to download based on your connection.\nYou can change this any time.',
               style:
                   TextStyle(fontSize: 14, color: AppColors.textSecondary),
             ),
@@ -150,7 +150,7 @@ class _ConnectivitySettingsScreenState
                                       color: AppColors.primary,
                                       borderRadius: BorderRadius.circular(4),
                                     ),
-                                    child: const Text('必須',
+                                    child: const Text('Required',
                                         style: TextStyle(
                                             color: Colors.white,
                                             fontSize: 10)),
@@ -199,7 +199,7 @@ class _ConnectivitySettingsScreenState
                       borderRadius: BorderRadius.circular(12)),
                 ),
                 child: Text(
-                  widget.isFirstRun ? '保存して始める' : '保存',
+                  widget.isFirstRun ? 'Save & get started' : 'Save',
                   style: const TextStyle(
                       fontSize: 16, fontWeight: FontWeight.bold),
                 ),

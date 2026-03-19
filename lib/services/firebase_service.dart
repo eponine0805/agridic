@@ -138,12 +138,12 @@ class FirebaseService {
       String postId, XFile file) async {
     final rawBytes = await file.readAsBytes();
 
-    // 低解像度圧縮 (10KB目標)
+    // Preview compression — readable quality for card thumbnails
     final lowBytes = await FlutterImageCompress.compressWithList(
       rawBytes,
-      quality: 15,
-      minWidth: 240,
-      minHeight: 240,
+      quality: 60,
+      minWidth: 640,
+      minHeight: 640,
     );
 
     final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -169,11 +169,11 @@ class FirebaseService {
         postId: 'off_stemborer',
         isOfficial: true,
         userRole: 'expert',
-        userName: 'Gatanga Agric. Office',
+        userName: 'Extension Officer',
         content: const PostContent(
           textShort: 'Maize Stem Borer Alert & Control [Maize] — Gatanga',
           textFull: '## Maize Stem Borer — Alert & Control\n'
-              '### Gatanga sub-county\n'
+              ''
               '\n'
               '## Current Situation\n'
               'Maize stem borer (Busseola fusca / Chilo partellus) reported in multiple farms. '
@@ -196,14 +196,14 @@ class FirebaseService {
               '\n'
               '## When to Escalate\n'
               'If more than 20% of plants show whorl damage, move to chemical control. '
-              'Contact Gatanga Agriculture Office for subsidised pesticides.',
+              'Contact your local extension office for support.',
           steps: [
             'IDENTIFY: Look for small holes on leaves and sawdust-like frass at the whorl. Pull damaged leaves to check for larvae.',
             'CULTURAL CONTROL: Remove and destroy crop residues after harvest. Rotate with beans or potatoes.',
             'BIOLOGICAL CONTROL (Push-Pull): Intercrop with Desmodium + Napier grass border.',
             'CHEMICAL CONTROL (if severe): Apply Bulldock Star into the leaf whorl at 2–3 weeks. Re-apply after 14 days.',
             'MONITOR: Scout twice weekly during weeks 2–6. Escalate if >20% plants are damaged.',
-            'REPORT: Photo damaged leaves and post to this app. Contact Gatanga Agric. Office.',
+            'REPORT: Photo damaged leaves and post to this app. Contact your local extension office.',
           ],
           imageLow: '🐛',
           images: ['🐛 stem-borer-damage.jpg', '🌿 push-pull-desmodium.jpg'],
@@ -221,7 +221,7 @@ class FirebaseService {
         postId: 'off_maize_guide',
         isOfficial: true,
         userRole: 'expert',
-        userName: 'Gatanga Agric. Office',
+        userName: 'Extension Officer',
         content: const PostContent(
           textShort: "Maize Growing Guide [Maize] — Gatanga, Murang'a County",
           textFull: '## Maize Growing Guide\n'

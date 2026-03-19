@@ -45,7 +45,6 @@ class AgridicApp extends StatelessWidget {
   }
 }
 
-/// 初回起動か確認し、未設定なら接続設定画面を表示する
 class _StartupRouter extends StatefulWidget {
   const _StartupRouter();
 
@@ -64,7 +63,6 @@ class _StartupRouterState extends State<_StartupRouter> {
 
   Future<void> _check() async {
     final connPrefs = context.read<ConnectivityPrefs>();
-    // ConnectivityPrefsのロードを待つ (AsyncNotifier代わりに少し待つ)
     await Future.delayed(const Duration(milliseconds: 200));
     if (!mounted) return;
     if (!connPrefs.setupDone) {
@@ -188,8 +186,8 @@ class _MainShellState extends State<MainShell> {
                   if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content: Text(seeded
-                        ? 'デモデータを9件 Firestore に追加しました'
-                        : 'すでにデータが存在するためスキップしました'),
+                        ? 'Added 9 demo posts to Firestore'
+                        : 'Data already exists — skipped'),
                     backgroundColor:
                         seeded ? AppColors.primary : Colors.grey,
                     duration: const Duration(seconds: 3),
@@ -211,7 +209,7 @@ class _MainShellState extends State<MainShell> {
                     children: [
                       Icon(Icons.signal_cellular_alt_outlined, size: 18),
                       SizedBox(width: 8),
-                      Text('データ設定'),
+                      Text('Download settings'),
                     ],
                   ),
                 ),
@@ -221,7 +219,7 @@ class _MainShellState extends State<MainShell> {
                     children: [
                       Icon(Icons.cloud_upload_outlined, size: 18),
                       SizedBox(width: 8),
-                      Text('デモデータを投入'),
+                      Text('Seed demo data'),
                     ],
                   ),
                 ),
@@ -281,7 +279,7 @@ class _MainShellState extends State<MainShell> {
           const SizedBox(height: 24),
           OutlinedButton.icon(
             icon: const Icon(Icons.signal_cellular_alt_outlined),
-            label: const Text('データダウンロード設定'),
+            label: const Text('Download settings'),
             onPressed: () {
               Navigator.push(
                 context,

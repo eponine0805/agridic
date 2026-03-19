@@ -45,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onChanged: _onSearch,
             onSubmitted: _onSearch,
             decoration: InputDecoration(
-              hintText: '農薬・作物・病気を検索…',
+              hintText: 'Search pests, crops, diseases…',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
@@ -83,7 +83,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             CircularProgressIndicator(color: AppColors.primary),
             SizedBox(height: 16),
-            Text('Firestore から読み込み中…',
+            Text('Loading from Firestore…',
                 style:
                     TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           ],
@@ -102,11 +102,11 @@ class _HomeScreenState extends State<HomeScreen> {
             const Icon(Icons.cloud_off_outlined,
                 size: 48, color: AppColors.textSecondary),
             const SizedBox(height: 12),
-            const Text('投稿がありません',
+            const Text('No posts yet',
                 style: TextStyle(
                     color: AppColors.textSecondary, fontSize: 15)),
             const SizedBox(height: 8),
-            const Text('右上メニューからデモデータを投入できます',
+            const Text('Seed demo data from the top-right menu',
                 style: TextStyle(
                     color: AppColors.textSecondary, fontSize: 12)),
           ],
@@ -141,10 +141,10 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Icon(Icons.search_off, size: 40, color: AppColors.textSecondary),
             const SizedBox(height: 8),
-            Text('"$_searchQuery" に一致する情報が見つかりません',
+            Text('No results for "$_searchQuery"',
                 style: const TextStyle(color: AppColors.textSecondary)),
             const SizedBox(height: 4),
-            const Text('辞書タブで作物・カテゴリを探せます',
+            const Text('Browse crops and categories in the Dictionary tab',
                 style: TextStyle(
                     color: AppColors.textSecondary, fontSize: 12)),
           ],
@@ -154,7 +154,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return ListView(
       children: [
-        // ── 辞書降臨バナー ──
         if (officials.isNotEmpty) ...[
           Container(
             margin: const EdgeInsets.fromLTRB(8, 12, 8, 0),
@@ -171,7 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const Icon(Icons.menu_book, color: AppColors.primary, size: 18),
                 const SizedBox(width: 8),
                 Text(
-                  '⭐ 公式ガイドが見つかりました (${officials.length}件)',
+                  '⭐ ${officials.length} official guide${officials.length == 1 ? '' : 's'} found',
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
@@ -186,14 +185,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () => _openDetail(context, p),
               )),
         ],
-        // ── コミュニティの声 ──
         if (farmers.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Text(
-              officials.isEmpty
-                  ? '検索結果 — コミュニティの声'
-                  : 'コミュニティの声',
+              officials.isEmpty ? 'Community posts' : 'Community posts',
               style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.bold,
@@ -217,7 +213,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// 検索時に「辞書エントリー」として表示する公式投稿カード
 class _OfficialSearchCard extends StatelessWidget {
   final Post post;
   final VoidCallback onTap;
@@ -250,13 +245,12 @@ class _OfficialSearchCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Badge row
               Row(
                 children: [
                   const Icon(Icons.star,
                       color: AppColors.verifiedGold, size: 14),
                   const SizedBox(width: 4),
-                  const Text('公式ガイド',
+                  const Text('Official Guide',
                       style: TextStyle(
                           fontSize: 11,
                           color: AppColors.verifiedGold,
@@ -296,7 +290,7 @@ class _OfficialSearchCard extends StatelessWidget {
                           fontSize: 11, color: AppColors.textSecondary)),
                   const Row(
                     children: [
-                      Text('詳細を読む',
+                      Text('Read more',
                           style: TextStyle(
                               fontSize: 12,
                               color: AppColors.primary,

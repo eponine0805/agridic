@@ -72,7 +72,7 @@ class PostCard extends StatelessWidget {
                               const Icon(Icons.star,
                                   color: AppColors.verifiedGold, size: 14),
                               const SizedBox(width: 2),
-                              const Text('公式',
+                              const Text('Official',
                                   style: TextStyle(
                                       fontSize: 11,
                                       color: AppColors.verifiedGold,
@@ -99,7 +99,7 @@ class PostCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  // Three dots menu (report)
+                  // Three dots menu
                   SizedBox(
                     width: 28,
                     height: 28,
@@ -115,7 +115,7 @@ class PostCard extends StatelessWidget {
                               Icon(Icons.flag_outlined,
                                   size: 16, color: AppColors.danger),
                               SizedBox(width: 8),
-                              Text('通報する',
+                              Text('Report post',
                                   style: TextStyle(color: AppColors.danger)),
                             ],
                           ),
@@ -151,7 +151,7 @@ class PostCard extends StatelessWidget {
                     const Icon(Icons.menu_book_outlined,
                         size: 13, color: AppColors.primary),
                     const SizedBox(width: 4),
-                    const Text('詳細を読む →',
+                    const Text('Read more →',
                         style: TextStyle(
                             fontSize: 12,
                             color: AppColors.primary,
@@ -172,7 +172,6 @@ class PostCard extends StatelessWidget {
               // Action bar
               Row(
                 children: [
-                  // Comment
                   _ActionBtn(
                     icon: Icons.chat_bubble_outline,
                     label: '',
@@ -180,7 +179,6 @@ class PostCard extends StatelessWidget {
                     onTap: () => _openComments(context),
                   ),
                   const SizedBox(width: 4),
-                  // Like
                   _ActionBtn(
                     icon: isLiked ? Icons.favorite : Icons.favorite_border,
                     label: post.likes > 0 ? '${post.likes}' : '',
@@ -219,7 +217,7 @@ class PostCard extends StatelessWidget {
     if (!context.mounted) return;
     if (already) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('この投稿は既に通報済みです'),
+        content: Text('You have already reported this post'),
         backgroundColor: AppColors.textSecondary,
       ));
       return;
@@ -229,7 +227,7 @@ class PostCard extends StatelessWidget {
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
         return AlertDialog(
-          title: const Text('この投稿を通報する'),
+          title: const Text('Report this post'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: ReportReason.values
@@ -246,7 +244,7 @@ class PostCard extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('キャンセル'),
+              child: const Text('Cancel'),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -261,11 +259,11 @@ class PostCard extends StatelessWidget {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                        content: Text('通報しました。ご協力ありがとうございます。'),
+                        content: Text('Reported. Thank you for your feedback.'),
                         backgroundColor: AppColors.textSecondary,
                       ));
                     },
-              child: const Text('通報する'),
+              child: const Text('Report'),
             ),
           ],
         );
@@ -299,7 +297,6 @@ class _Thumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!url.startsWith('http')) {
-      // emoji / placeholder
       return Container(
         height: 120,
         decoration: BoxDecoration(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
 import '../providers/user_prefs.dart';
@@ -20,6 +21,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   bool _submitting = false;
 
+  // Location
+  bool _locationAuto = true;
+  (double, double)? _autoLocation;
+  bool _gettingLocation = false;
+
   // Tweet fields
   final _tweetTextCtrl = TextEditingController();
   XFile? _tweetImageFile;
@@ -38,12 +44,57 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   int _blockCounter = 0;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _detectLocation());
+  }
+
+  @override
   void dispose() {
     _tweetTextCtrl.dispose();
     _rptTitleCtrl.dispose();
     _rptCropCtrl.dispose();
     _rptLocationCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _detectLocation() async {
+    if (!_locationAuto) return;
+    setState(() => _gettingLocation = true);
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.deniedForever ||
+          perm == LocationPermission.denied) {
+        setState(() {
+          _gettingLocation = false;
+          _locationAuto = false;
+        });
+        _showError('Location permission denied. Enter location manually.');
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _autoLocation = (pos.latitude, pos.longitude);
+          _gettingLocation = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _gettingLocation = false;
+          _autoLocation = null;
+        });
+      }
+    }
   }
 
   List<Map<String, dynamic>> get _currentBlocks => _blocks[_activeMode]!;
@@ -138,6 +189,14 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     return (lines.join('\n'), images, steps);
   }
 
+  (double, double)? get _resolvedLocation {
+    final state = context.read<AppState>();
+    if (_locationAuto) {
+      return _autoLocation ?? state.currentLocation;
+    }
+    return null;
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
     final state = context.read<AppState>();
@@ -146,7 +205,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
     if (_postType == 'tweet') {
       if (_tweetTextCtrl.text.trim().isEmpty) {
-        _showError('テキストを入力してください。');
+        _showError('Please enter some text.');
         return;
       }
       setState(() => _submitting = true);
@@ -159,9 +218,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
               await FirebaseService.uploadImage(postId, _tweetImageFile!);
           imageLow = urls.low;
           imageHigh = urls.high;
-        } catch (_) {
-          // upload failed; proceed without image
-        }
+        } catch (_) {}
       }
 
       final newPost = Post(
@@ -175,12 +232,12 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           imageHigh: imageHigh,
         ),
         timestamp: DateTime.now(),
-        location: state.currentLocation,
+        location: _resolvedLocation,
       );
       await state.addPost(newPost);
     } else {
       if (_rptTitleCtrl.text.trim().isEmpty) {
-        _showError('見出しを入力してください。');
+        _showError('Please enter a headline.');
         return;
       }
       setState(() => _submitting = true);
@@ -195,18 +252,14 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
       final activeBlocks = _blocks[_activeMode]!;
 
-      // 画像ブロックをアップロードしてURLに変換
       for (final block in activeBlocks) {
         if (block['type'] == 'image' && block['file'] != null) {
           try {
             final imgPostId = '${postId}_img_${block['id']}';
             final urls = await FirebaseService.uploadImage(
                 imgPostId, block['file'] as XFile);
-            // ctrlのテキストをURLに更新
             (block['ctrl'] as TextEditingController).text = urls.high;
-          } catch (_) {
-            // upload failed; keep original text
-          }
+          } catch (_) {}
         }
       }
 
@@ -225,7 +278,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         ),
         timestamp: DateTime.now(),
         isVerified: true,
-        location: state.currentLocation,
+        location: _resolvedLocation,
         viewMode: _activeMode,
         dictCrop: crop,
       );
@@ -240,9 +293,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         children: [
           const Icon(Icons.check_circle, color: Colors.white, size: 18),
           const SizedBox(width: 8),
-          Text('${_postType == 'tweet' ? 'ツイート' : 'レポート'}を投稿しました',
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w500)),
+          Text(
+            _postType == 'tweet' ? 'Post shared!' : 'Report published!',
+            style: const TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w500),
+          ),
         ],
       ),
       backgroundColor: AppColors.primary,
@@ -279,7 +334,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                           icon: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
                           onPressed: () => Navigator.pop(context),
                         ),
-                        const Text('新規投稿', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                        const Text('New post', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                       ],
                     ),
                     // Type toggle
@@ -298,8 +353,8 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                         side: const WidgetStatePropertyAll(BorderSide(color: Colors.white54)),
                       ),
                       segments: const [
-                        ButtonSegment(value: 'tweet', label: Text('ツイート')),
-                        ButtonSegment(value: 'report', label: Text('レポート')),
+                        ButtonSegment(value: 'tweet', label: Text('Post')),
+                        ButtonSegment(value: 'report', label: Text('Report')),
                       ],
                     ),
                   ],
@@ -333,7 +388,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                         height: 20,
                         child: CircularProgressIndicator(
                             color: Colors.white, strokeWidth: 2))
-                    : const Text('投稿する', style: TextStyle(fontSize: 16)),
+                    : const Text('Publish', style: TextStyle(fontSize: 16)),
               ),
             ),
           ),
@@ -350,7 +405,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           children: [
             Icon(Icons.edit_note, size: 20, color: AppColors.primary),
             SizedBox(width: 8),
-            Text('ツイートを書く', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text('Write a post', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
         const SizedBox(height: 12),
@@ -359,7 +414,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           maxLines: 8,
           minLines: 3,
           decoration: InputDecoration(
-            hintText: '畑で何か起きていますか？',
+            hintText: 'What\'s happening on your farm?',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             contentPadding: const EdgeInsets.all(12),
           ),
@@ -368,7 +423,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         OutlinedButton.icon(
           onPressed: _pickTweetImage,
           icon: const Icon(Icons.add_a_photo_outlined, size: 16),
-          label: const Text('写真を追加', style: TextStyle(fontSize: 12)),
+          label: const Text('Add photo', style: TextStyle(fontSize: 12)),
         ),
         if (_tweetImageFile != null) ...[
           const SizedBox(height: 8),
@@ -391,6 +446,8 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
             ),
           ),
         ],
+        const SizedBox(height: 12),
+        _buildLocationSelector(),
       ],
     );
   }
@@ -403,7 +460,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           children: [
             Icon(Icons.verified_user, size: 20, color: AppColors.primary),
             SizedBox(width: 8),
-            Text('Create Official Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text('Create Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
         const SizedBox(height: 12),
@@ -411,29 +468,120 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(child: _buildField(_rptCropCtrl, 'Crop: e.g. Maize, Tomato...')),
+            Expanded(child: _buildField(_rptCropCtrl, 'Crop: e.g. Maize, Tomato…')),
             const SizedBox(width: 8),
-            Expanded(child: _buildField(_rptLocationCtrl, 'Location: e.g. Gatanga...')),
+            Expanded(child: _buildField(_rptLocationCtrl, 'Location name: e.g. Nakuru…')),
           ],
         ),
+        const SizedBox(height: 8),
+        _buildLocationSelector(),
         const SizedBox(height: 12),
         const Divider(height: 1, color: AppColors.divider),
         const SizedBox(height: 8),
-        const Text('Create content for each view mode:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+        const Text('Choose report format:', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
         const SizedBox(height: 8),
         // Mode tabs
         Row(
           children: [
-            _buildModeTab('text', 'Text Only', Icons.text_snippet_outlined),
+            _buildModeTab('text', 'Text only', Icons.text_snippet_outlined),
             const SizedBox(width: 4),
-            _buildModeTab('manual', 'Text+Image', Icons.auto_awesome_outlined),
+            _buildModeTab('manual', 'Text + Images', Icons.auto_awesome_outlined),
             const SizedBox(width: 4),
-            _buildModeTab('visual', 'Image Main', Icons.image_outlined),
+            _buildModeTab('visual', 'Image-based', Icons.image_outlined),
           ],
         ),
         const SizedBox(height: 12),
         // Block editor
         _buildBlockEditor(),
+      ],
+    );
+  }
+
+  Widget _buildLocationSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.location_on_outlined, size: 16, color: AppColors.primary),
+            SizedBox(width: 6),
+            Text('Location', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => _locationAuto = true);
+                  _detectLocation();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: _locationAuto ? AppColors.modeActive : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _locationAuto ? AppColors.primary : AppColors.divider,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.gps_fixed, size: 18,
+                          color: _locationAuto ? AppColors.primary : AppColors.textSecondary),
+                      const SizedBox(height: 2),
+                      Text('Auto-detect',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: _locationAuto ? AppColors.primary : AppColors.textSecondary)),
+                      if (_locationAuto && _gettingLocation) ...[
+                        const SizedBox(height: 4),
+                        const SizedBox(
+                          height: 2,
+                          child: LinearProgressIndicator(),
+                        ),
+                      ] else if (_locationAuto && _autoLocation != null) ...[
+                        const SizedBox(height: 2),
+                        Text('📍 GPS ready',
+                            style: TextStyle(fontSize: 9, color: AppColors.primary)),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _locationAuto = false),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: !_locationAuto ? AppColors.modeActive : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: !_locationAuto ? AppColors.primary : AppColors.divider,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.edit_location_outlined, size: 18,
+                          color: !_locationAuto ? AppColors.primary : AppColors.textSecondary),
+                      const SizedBox(height: 2),
+                      Text('No GPS',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: !_locationAuto ? AppColors.primary : AppColors.textSecondary)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -555,7 +703,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                               controller: ctrl,
                               readOnly: true,
                               decoration: InputDecoration(
-                                hintText: '画像を選択してください…',
+                                hintText: 'Select an image…',
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                 isDense: true,
@@ -634,9 +782,9 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   String _blockHint(String type) {
     return switch (type) {
-      'heading' => 'Section heading...',
-      'text' => 'Write paragraph text...',
-      'bullets' => 'One bullet point per line...',
+      'heading' => 'Section heading…',
+      'text' => 'Write paragraph text…',
+      'bullets' => 'One bullet point per line…',
       _ => '',
     };
   }

@@ -10,7 +10,7 @@ class UserPrefs extends ChangeNotifier {
   String _userName = '';
 
   String get userId => _userId;
-  String get userName => _userName.isEmpty ? '農家' : _userName;
+  String get userName => _userName.isEmpty ? 'Farmer' : _userName;
 
   UserPrefs() {
     _load();

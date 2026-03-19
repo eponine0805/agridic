@@ -3,59 +3,21 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
-import '../providers/connectivity_prefs.dart';
 import '../utils/app_colors.dart';
 import '../widgets/rich_text_content.dart';
 
-class DetailScreen extends StatefulWidget {
+class DetailScreen extends StatelessWidget {
   final Post post;
 
   const DetailScreen({super.key, required this.post});
 
-  @override
-  State<DetailScreen> createState() => _DetailScreenState();
-}
-
-class _DetailScreenState extends State<DetailScreen> {
-  late String _activeMode;
-  late List<String> _availableModes;
-
-  @override
-  void initState() {
-    super.initState();
-    _availableModes = _computeAvailableModes();
-    final preferred = widget.post.viewMode;
-    _activeMode = _availableModes.contains(preferred)
-        ? preferred
-        : (_availableModes.isNotEmpty ? _availableModes.first : 'text');
-  }
-
-  List<String> _computeAvailableModes() {
-    if (!widget.post.isOfficial) return [];
-    final content = widget.post.content;
-    final hasText =
-        content.textFull.isNotEmpty || content.textShort.isNotEmpty;
-    final hasImages = content.images.isNotEmpty;
-    final hasManual = content.textFullManual.isNotEmpty;
-    final hasVisual = content.textFullVisual.isNotEmpty;
-
-    // ConnectivityPrefs でフィルタリング
-    final connPrefs = context.read<ConnectivityPrefs>();
-
-    final allModes = <String>[];
-    if (hasText) allModes.add('text');
-    if (hasText && (hasImages || hasManual)) allModes.add('manual');
-    if (hasImages || hasVisual) allModes.add('visual');
-    if (allModes.isEmpty) allModes.add('text');
-
-    // ユーザーが有効にしているモードのみ残す（textは常に有効）
-    final filtered =
-        allModes.where((m) => connPrefs.isEnabled(m)).toList();
-    return filtered.isEmpty ? ['text'] : filtered;
+  String _activeMode() {
+    final m = post.viewMode;
+    return m.isNotEmpty ? m : 'text';
   }
 
   String _getTextForMode(String mode) {
-    final content = widget.post.content;
+    final content = post.content;
     if (mode == 'manual' && content.textFullManual.isNotEmpty) {
       return content.textFullManual;
     } else if (mode == 'visual' && content.textFullVisual.isNotEmpty) {
@@ -67,7 +29,6 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
-    final post = widget.post;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -116,18 +77,7 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
           ),
-          // Mode selector
-          if (_availableModes.length > 1)
-            Container(
-              color: AppColors.surface,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                children:
-                    _availableModes.map((mode) => _buildModeTab(mode)).toList(),
-              ),
-            ),
-          // Content
+          // Content — rendered in the format the author chose, no switching
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
@@ -139,63 +89,7 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Widget _buildModeTab(String mode) {
-    final isActive = _activeMode == mode;
-    final labels = {
-      'text': 'テキスト\n(軽い)',
-      'manual': 'テキスト+画像\n(標準)',
-      'visual': '画像メイン\n(高画質)',
-    };
-    final icons = {
-      'text': Icons.text_snippet_outlined,
-      'manual': Icons.auto_awesome_outlined,
-      'visual': Icons.image_outlined,
-    };
-
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _activeMode = mode),
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 2),
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: BoxDecoration(
-            color: isActive ? AppColors.modeActive : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isActive ? AppColors.primary : AppColors.divider,
-              width: isActive ? 2 : 1,
-            ),
-          ),
-          child: Column(
-            children: [
-              Icon(icons[mode],
-                  size: 16,
-                  color: isActive
-                      ? AppColors.primary
-                      : AppColors.textSecondary),
-              const SizedBox(height: 2),
-              Text(
-                labels[mode] ?? mode,
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight:
-                      isActive ? FontWeight.w600 : FontWeight.normal,
-                  color: isActive
-                      ? AppColors.primary
-                      : AppColors.textSecondary,
-                  height: 1.3,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildContent() {
-    final post = widget.post;
     if (!post.isOfficial) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -213,10 +107,11 @@ class _DetailScreenState extends State<DetailScreen> {
       );
     }
 
-    final fullText = _getTextForMode(_activeMode);
+    final mode = _activeMode();
+    final fullText = _getTextForMode(mode);
     final imgs = post.content.images;
 
-    if (_activeMode == 'text') {
+    if (mode == 'text') {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -228,7 +123,7 @@ class _DetailScreenState extends State<DetailScreen> {
           ],
         ],
       );
-    } else if (_activeMode == 'manual') {
+    } else if (mode == 'manual') {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -240,7 +135,7 @@ class _DetailScreenState extends State<DetailScreen> {
         ],
       );
     } else {
-      // visual mode
+      // visual mode — image-based report
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

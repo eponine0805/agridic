@@ -85,7 +85,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   }
 
   String get _title {
-    if (_path.isEmpty) return '農業公式ガイド';
+    if (_path.isEmpty) return 'Official Guides';
     if (_path.length == 1) return _path[0];
     return _path[1];
   }
@@ -106,39 +106,24 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        Row(
-                          children: [
-                            if (_path.isNotEmpty)
-                              IconButton(
-                                icon: const Icon(Icons.arrow_back,
-                                    color: Colors.white, size: 20),
-                                onPressed: _goBack,
-                              )
-                            else
-                              const SizedBox(width: 8),
-                            const Icon(Icons.menu_book,
-                                color: Colors.white, size: 22),
-                            const SizedBox(width: 4),
-                            Text(_title,
-                                style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white)),
-                          ],
-                        ),
-                        if (_path.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.only(left: 12, bottom: 4),
-                            child: Text(
-                              'ガタンガ農業事務所 監修・公式データベース',
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.white70),
-                            ),
-                          ),
+                        if (_path.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back,
+                                color: Colors.white, size: 20),
+                            onPressed: _goBack,
+                          )
+                        else
+                          const SizedBox(width: 8),
+                        const Icon(Icons.menu_book,
+                            color: Colors.white, size: 22),
+                        const SizedBox(width: 4),
+                        Text(_title,
+                            style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white)),
                       ],
                     ),
                   ),
@@ -154,7 +139,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                   onChanged: (v) =>
                       setState(() => _searchQuery = v.trim().toLowerCase()),
                   decoration: InputDecoration(
-                    hintText: '公式ガイドを検索…',
+                    hintText: 'Search official guides…',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _searchQuery.isNotEmpty
                         ? IconButton(
@@ -212,13 +197,9 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             const Icon(Icons.search_off,
                 size: 40, color: AppColors.textSecondary),
             const SizedBox(height: 8),
-            Text('"$_searchQuery" に一致する公式ガイドが見つかりません',
+            Text('No official guides found for "$_searchQuery"',
                 style:
                     const TextStyle(color: AppColors.textSecondary)),
-            const SizedBox(height: 8),
-            const Text('農業事務所にお問い合わせください',
-                style: TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary)),
           ],
         ),
       );
@@ -228,7 +209,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text('⭐ ${results.length}件の公式ガイドが見つかりました',
+          child: Text('⭐ ${results.length} official guide${results.length == 1 ? '' : 's'} found',
               style: const TextStyle(
                   fontSize: 12,
                   color: AppColors.primary,
@@ -254,13 +235,13 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
       children: [
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text('作物を選んでください',
+          child: Text('Select a crop',
               style: TextStyle(
                   fontSize: 13, color: AppColors.textSecondary)),
         ),
         ...sortedCrops.map((e) => _listTile(
               title: e.key,
-              subtitle: '⭐ ${e.value}件の公式ガイド',
+              subtitle: '⭐ ${e.value} official guide${e.value == 1 ? '' : 's'}',
               leading: Text(_cropIcons[e.key] ?? '🌱',
                   style: const TextStyle(fontSize: 28)),
               trailing: _countBadge(e.value),
@@ -290,7 +271,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
         ...(cats.entries.toList()..sort((a, b) => a.key.compareTo(b.key)))
             .map((e) => _listTile(
                   title: e.key,
-                  subtitle: '⭐ ${e.value}件',
+                  subtitle: '⭐ ${e.value} guide${e.value == 1 ? '' : 's'}',
                   leading: Icon(_catIcons[e.key] ?? Icons.folder_outlined,
                       size: 22, color: AppColors.primary),
                   trailing: _countBadge(e.value),
@@ -311,7 +292,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             children: [
               Text(emoji, style: const TextStyle(fontSize: 18)),
               const SizedBox(width: 8),
-              Text('$crop → $category',
+              Text('$crop › $category',
                   style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,

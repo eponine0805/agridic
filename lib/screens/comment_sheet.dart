@@ -29,7 +29,6 @@ class _CommentSheetState extends State<CommentSheet> {
     final text = _ctrl.text.trim();
     if (text.isEmpty) return;
     final userPrefs = context.read<UserPrefs>();
-    final appState = context.read<AppState>();
     setState(() => _submitting = true);
     final comment = Comment(
       commentId: '',
@@ -42,8 +41,6 @@ class _CommentSheetState extends State<CommentSheet> {
     await FirebaseService.addComment(widget.post.postId, comment);
     _ctrl.clear();
     setState(() => _submitting = false);
-    // ignore: unused_local_variable
-    final _ = appState; // suppress unused warning
   }
 
   @override
@@ -108,10 +105,12 @@ class _CommentSheetState extends State<CommentSheet> {
                     final comments = snap.data ?? [];
                     if (comments.isEmpty) {
                       return const Center(
-                        child: Text('まだコメントがありません\n最初のコメントを書いてみましょう！',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                                color: AppColors.textSecondary, fontSize: 14)),
+                        child: Text(
+                          'No comments yet\nBe the first to comment!',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: AppColors.textSecondary, fontSize: 14),
+                        ),
                       );
                     }
                     return ListView.builder(
@@ -137,7 +136,7 @@ class _CommentSheetState extends State<CommentSheet> {
                       child: TextField(
                         controller: _ctrl,
                         decoration: InputDecoration(
-                          hintText: 'コメントを入力…',
+                          hintText: 'Write a comment…',
                           border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(24),
                               borderSide:
