@@ -1,0 +1,16 @@
+changes.patch
+
+# Keystore files (managed via GitHub Secrets)
+android/app/*.jks
+android/app/*.keystore
+android/app/google-services.json
+
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.iml
+*.ipr
+*.iws
+.idea/

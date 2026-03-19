@@ -1,0 +1,18 @@
+name: Get SHA-1 Fingerprint
+
+on:
+  workflow_dispatch:
+
+jobs:
+  get-sha1:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract SHA-1 from keystore
+        run: |
+          echo '${{ secrets.RELEASE_KEYSTORE_BASE64 }}' | base64 -d > /tmp/temp.jks
+          keytool -list -v \
+            -keystore /tmp/temp.jks \
+            -alias agridic \
+            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
+            | grep SHA1
+          rm -f /tmp/temp.jks

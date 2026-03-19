@@ -1,0 +1,478 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/post.dart';
+import '../providers/app_state.dart';
+import '../utils/app_colors.dart';
+import '../widgets/post_card.dart';
+import 'detail_screen.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  String _cropFilter = '';
+  String _typeFilter = 'all';
+  String _sortOption = 'newest';
+
+  static const _crops = ['', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
+  static const _cropLabels = ['All', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearch(String value) {
+    setState(() => _searchQuery = value);
+  }
+
+  void _resetSearch() {
+    _searchController.clear();
+    setState(() => _searchQuery = '');
+  }
+
+  void _showSortSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (_) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 8),
+                child: Text('Sort by',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              for (final entry in const [
+                ('newest', Icons.schedule, 'Newest first'),
+                ('likes', Icons.favorite_outline, 'Most liked'),
+                ('distance', Icons.near_me_outlined, 'Closest first'),
+              ])
+                ListTile(
+                  leading: Icon(entry.$2,
+                      color: _sortOption == entry.$1
+                          ? AppColors.primary
+                          : AppColors.textSecondary),
+                  title: Text(entry.$3,
+                      style: TextStyle(
+                          fontWeight: _sortOption == entry.$1
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: _sortOption == entry.$1
+                              ? AppColors.primary
+                              : AppColors.textPrimary)),
+                  trailing: _sortOption == entry.$1
+                      ? const Icon(Icons.check, color: AppColors.primary, size: 18)
+                      : null,
+                  onTap: () {
+                    setState(() => _sortOption = entry.$1);
+                    Navigator.pop(context);
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          color: AppColors.background,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Column(
+            children: [
+              // Search bar + sort button
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: _onSearch,
+                      onSubmitted: _onSearch,
+                      decoration: InputDecoration(
+                        hintText: 'Search pests, crops, diseases…',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: _resetSearch,
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(25),
+                            borderSide: BorderSide.none),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: _showSortSheet,
+                    icon: const Icon(Icons.sort),
+                    color: _sortOption != 'newest'
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    tooltip: 'Sort',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Crop filter chips + type toggle
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (int i = 0; i < _crops.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: FilterChip(
+                          label: Text(_cropLabels[i],
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: _cropFilter == _crops[i]
+                                      ? Colors.white
+                                      : AppColors.textSecondary)),
+                          selected: _cropFilter == _crops[i],
+                          onSelected: (_) =>
+                              setState(() => _cropFilter = _crops[i]),
+                          selectedColor: AppColors.primary,
+                          checkmarkColor: Colors.white,
+                          backgroundColor: Colors.white,
+                          side: BorderSide(
+                              color: _cropFilter == _crops[i]
+                                  ? AppColors.primary
+                                  : AppColors.divider),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    const SizedBox(
+                      height: 20,
+                      child: VerticalDivider(color: AppColors.divider, width: 1),
+                    ),
+                    const SizedBox(width: 8),
+                    for (final entry in const [
+                      ('all', 'All'),
+                      ('official', 'Official'),
+                      ('community', 'Community'),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                          label: Text(entry.$2,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: _typeFilter == entry.$1
+                                      ? Colors.white
+                                      : AppColors.textSecondary)),
+                          selected: _typeFilter == entry.$1,
+                          onSelected: (_) =>
+                              setState(() => _typeFilter = entry.$1),
+                          selectedColor: AppColors.accent,
+                          backgroundColor: Colors.white,
+                          side: BorderSide(
+                              color: _typeFilter == entry.$1
+                                  ? AppColors.accent
+                                  : AppColors.divider),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+        // Feed
+        Expanded(
+          child: Consumer<AppState>(
+            builder: (context, state, _) {
+              return _buildFeed(state);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFeed(AppState state) {
+    if (state.isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: AppColors.primary),
+            SizedBox(height: 16),
+            Text('Loading from Firestore…',
+                style:
+                    TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          ],
+        ),
+      );
+    }
+    if (_searchQuery.isNotEmpty || _cropFilter.isNotEmpty || _typeFilter != 'all') {
+      return _buildSearchResults(state);
+    }
+    final posts = state.filteredPosts('', sort: _sortOption);
+    if (posts.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.cloud_off_outlined,
+                size: 48, color: AppColors.textSecondary),
+            const SizedBox(height: 12),
+            const Text('No posts yet',
+                style: TextStyle(
+                    color: AppColors.textSecondary, fontSize: 15)),
+            const SizedBox(height: 8),
+            const Text('Seed demo data from the top-right menu',
+                style: TextStyle(
+                    color: AppColors.textSecondary, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () => state.detectLocation(),
+      child: ListView.builder(
+        itemCount: posts.length,
+        itemBuilder: (context, index) {
+          final post = posts[index];
+          return PostCard(
+            post: post,
+            onTap: () => _openDetail(context, post),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSearchResults(AppState state) {
+    final all = state.filteredPosts(
+      _searchQuery,
+      crop: _cropFilter,
+      type: _typeFilter,
+      sort: _sortOption,
+    );
+    final officials = all.where((p) => p.isOfficial).toList();
+    final farmers = all.where((p) => !p.isOfficial).toList();
+
+    if (all.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.search_off, size: 40, color: AppColors.textSecondary),
+            const SizedBox(height: 8),
+            Text('No results for "$_searchQuery"',
+                style: const TextStyle(color: AppColors.textSecondary)),
+            const SizedBox(height: 4),
+            const Text('Browse crops and categories in the Dictionary tab',
+                style: TextStyle(
+                    color: AppColors.textSecondary, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      children: [
+        if (officials.isNotEmpty) ...[
+          Container(
+            margin: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.modeActive,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(10)),
+              border: Border.all(
+                  color: AppColors.primary.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.menu_book, color: AppColors.primary, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  '⭐ ${officials.length} official guide${officials.length == 1 ? '' : 's'} found',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primaryDark,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ...officials.map((p) => _OfficialSearchCard(
+                post: p,
+                onTap: () => _openDetail(context, p),
+              )),
+        ],
+        if (farmers.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              officials.isEmpty ? 'Community posts' : 'Community posts',
+              style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textSecondary),
+            ),
+          ),
+          ...farmers.map((p) => PostCard(
+                post: p,
+                onTap: () => _openDetail(context, p),
+              )),
+        ],
+      ],
+    );
+  }
+
+  void _openDetail(BuildContext context, Post post) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DetailScreen(post: post)),
+    );
+  }
+}
+
+class _OfficialSearchCard extends StatelessWidget {
+  final Post post;
+  final VoidCallback onTap;
+
+  const _OfficialSearchCard({required this.post, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(
+            left: const BorderSide(color: AppColors.primary, width: 4),
+            right: BorderSide(color: AppColors.primary.withOpacity(0.2)),
+            bottom: BorderSide(color: AppColors.primary.withOpacity(0.2)),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withOpacity(0.08),
+              blurRadius: 6,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.star,
+                      color: AppColors.verifiedGold, size: 14),
+                  const SizedBox(width: 4),
+                  const Text('Official Guide',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.verifiedGold,
+                          fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 8),
+                  if (post.dictCrop.isNotEmpty) _SmallTag(post.dictCrop),
+                  if (post.dictCategory.isNotEmpty) ...[
+                    const SizedBox(width: 4),
+                    _SmallTag(post.dictCategory),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                post.content.textShort,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 14),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (post.dictTags.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 4,
+                  children: post.dictTags
+                      .take(4)
+                      .map((t) => _SmallTag('#$t'))
+                      .toList(),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(post.userName,
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textSecondary)),
+                  const Row(
+                    children: [
+                      Text('Read more',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600)),
+                      SizedBox(width: 2),
+                      Icon(Icons.arrow_forward_ios,
+                          size: 10, color: AppColors.primary),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SmallTag extends StatelessWidget {
+  final String label;
+  const _SmallTag(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.modeActive,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+      ),
+      child: Text(label,
+          style: const TextStyle(
+              fontSize: 10, color: AppColors.primaryDark)),
+    );
+  }
+}
