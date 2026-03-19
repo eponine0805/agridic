@@ -162,6 +162,58 @@ class FirebaseService {
     return (low: lowUrl, high: highUrl);
   }
 
+  // ─── 辞書ダウンロード ──────────────────────────────────────────
+
+  /// inDictionary=true のポスト一覧を全件取得
+  static Future<List<Post>> fetchDictionaryPosts() async {
+    final snap = await _db
+        .collection(_col)
+        .where('inDictionary', isEqualTo: true)
+        .get();
+    return snap.docs.map((d) => Post.fromFirestore(d)).toList();
+  }
+
+  /// 辞書エントリ数を取得（サイズ見積もり用）
+  static Future<int> getDictionaryPostCount() async {
+    final snap = await _db
+        .collection(_col)
+        .where('inDictionary', isEqualTo: true)
+        .get();
+    return snap.size;
+  }
+
+  /// 投稿を削除（投稿者本人またはadminのみ）
+  static Future<void> deletePost(String postId) async {
+    await _db.collection(_col).doc(postId).delete();
+  }
+
+  // ─── ユーザー管理 ──────────────────────────────────────────────
+
+  /// ユーザーのロールを更新（admin専用）
+  static Future<void> setUserRole(String uid, String role) async {
+    await _db.collection('users').doc(uid).set(
+        {'role': role}, SetOptions(merge: true));
+  }
+
+  /// adminが存在しない場合のみ、指定ユーザーをadminに設定する（初回bootstrap）
+  static Future<bool> claimFirstAdmin(String uid) async {
+    final existing = await _db
+        .collection('users')
+        .where('role', isEqualTo: 'admin')
+        .limit(1)
+        .get();
+    if (existing.docs.isNotEmpty) return false; // admin already exists
+    await _db.collection('users').doc(uid).set(
+        {'role': 'admin'}, SetOptions(merge: true));
+    return true;
+  }
+
+  /// ユーザー一覧をFirestoreから取得
+  static Future<List<Map<String, dynamic>>> fetchUsers() async {
+    final snap = await _db.collection('users').get();
+    return snap.docs.map((d) => {'uid': d.id, ...d.data()}).toList();
+  }
+
   static List<Post> _demoData() {
     final now = DateTime.now();
     return [

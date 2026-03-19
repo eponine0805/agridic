@@ -21,6 +21,8 @@ class PostCard extends StatelessWidget {
     final userPrefs = context.watch<UserPrefs>();
     final isOfficial = post.isOfficial;
     final isLiked = post.likedBy.contains(userPrefs.userId);
+    final isAdmin = userPrefs.isAdmin;
+    final isOwner = post.userId.isNotEmpty && post.userId == userPrefs.userId;
 
     return GestureDetector(
       onTap: onTap,
@@ -108,6 +110,45 @@ class PostCard extends StatelessWidget {
                           size: 16, color: AppColors.textSecondary),
                       padding: EdgeInsets.zero,
                       itemBuilder: (_) => [
+                        if (isOwner || isAdmin) ...[
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(Icons.delete_outline,
+                                    size: 16, color: AppColors.danger),
+                                SizedBox(width: 8),
+                                Text('Delete post',
+                                    style:
+                                        TextStyle(color: AppColors.danger)),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (isAdmin) ...[
+                          PopupMenuItem(
+                            value: 'dict',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  post.inDictionary
+                                      ? Icons.menu_book
+                                      : Icons.menu_book_outlined,
+                                  size: 16,
+                                  color: AppColors.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  post.inDictionary
+                                      ? 'Remove from dictionary'
+                                      : 'Add to dictionary',
+                                  style: const TextStyle(
+                                      color: AppColors.primary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const PopupMenuItem(
                           value: 'report',
                           child: Row(
@@ -124,6 +165,10 @@ class PostCard extends StatelessWidget {
                       onSelected: (v) {
                         if (v == 'report') {
                           _showReportDialog(context, userPrefs.userId);
+                        } else if (v == 'dict') {
+                          _toggleDictionary(context);
+                        } else if (v == 'delete') {
+                          _confirmDelete(context);
                         }
                       },
                     ),
@@ -193,6 +238,45 @@ class PostCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete post'),
+        content: const Text('This post will be permanently deleted. Continue?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.danger,
+                foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await FirebaseService.deletePost(post.postId);
+    }
+  }
+
+  void _toggleDictionary(BuildContext context) {
+    _showDictConfigSheet(context);
+  }
+
+  void _showDictConfigSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _DictConfigSheet(post: post),
     );
   }
 
@@ -297,26 +381,8 @@ class _Thumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!url.startsWith('http')) {
-      return Container(
-        height: 120,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF5F5F5),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.image_outlined,
-                  color: AppColors.textSecondary, size: 20),
-              const SizedBox(width: 6),
-              Text(url,
-                  style: const TextStyle(
-                      fontSize: 24, color: AppColors.textSecondary)),
-            ],
-          ),
-        ),
-      );
+      // Non-HTTP URLs (demo emoji strings, etc.) — skip rendering
+      return const SizedBox.shrink();
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
@@ -395,6 +461,190 @@ class _ActionBtn extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─── Dictionary config sheet (admin only) ────────────────────────────────────
+
+class _DictConfigSheet extends StatefulWidget {
+  final Post post;
+  const _DictConfigSheet({required this.post});
+
+  @override
+  State<_DictConfigSheet> createState() => _DictConfigSheetState();
+}
+
+class _DictConfigSheetState extends State<_DictConfigSheet> {
+  late bool _inDictionary;
+  late TextEditingController _cropCtrl;
+  late TextEditingController _catCtrl;
+  late List<String> _tags;
+  final _tagCtrl = TextEditingController();
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _inDictionary = widget.post.inDictionary;
+    _cropCtrl = TextEditingController(text: widget.post.dictCrop);
+    _catCtrl = TextEditingController(text: widget.post.dictCategory);
+    _tags = List.from(widget.post.dictTags);
+  }
+
+  @override
+  void dispose() {
+    _cropCtrl.dispose();
+    _catCtrl.dispose();
+    _tagCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    await FirebaseService.updatePost(widget.post.postId, {
+      'inDictionary': _inDictionary,
+      'dictCrop': _cropCtrl.text.trim(),
+      'dictCategory': _catCtrl.text.trim(),
+      'dictTags': _tags,
+      'isOfficial': _inDictionary ? true : widget.post.isOfficial,
+    });
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  void _addTag(String tag) {
+    final t = tag.trim();
+    if (t.isNotEmpty && !_tags.contains(t)) {
+      setState(() => _tags.add(t));
+    }
+    _tagCtrl.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + bottom),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2))),
+          ),
+          const SizedBox(height: 14),
+          const Text('Dictionary Settings',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Add to dictionary',
+                    style: TextStyle(fontSize: 14)),
+              ),
+              Switch(
+                value: _inDictionary,
+                onChanged: (v) => setState(() => _inDictionary = v),
+                activeColor: AppColors.primary,
+              ),
+            ],
+          ),
+          if (_inDictionary) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _cropCtrl,
+              decoration: InputDecoration(
+                labelText: 'Crop',
+                hintText: 'e.g. Maize, Tomato',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 10),
+              ),
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _catCtrl,
+              decoration: InputDecoration(
+                labelText: 'Category',
+                hintText: 'e.g. Pests & Diseases, Growing Guide',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 10),
+              ),
+              style: const TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 10),
+            const Text('Keywords / Tags',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                ..._tags.map((t) => Chip(
+                      label: Text(t,
+                          style: const TextStyle(fontSize: 12)),
+                      onDeleted: () => setState(() => _tags.remove(t)),
+                      deleteIconColor: AppColors.textSecondary,
+                      materialTapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 0),
+                      backgroundColor: AppColors.modeActive,
+                    )),
+                SizedBox(
+                  width: 120,
+                  child: TextField(
+                    controller: _tagCtrl,
+                    style: const TextStyle(fontSize: 12),
+                    decoration: const InputDecoration(
+                      hintText: 'Add tag…',
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    onSubmitted: _addTag,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton(
+              onPressed: _saving ? null : _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              child: _saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Text('Save',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
       ),
     );
   }

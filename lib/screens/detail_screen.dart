@@ -193,27 +193,7 @@ class DetailScreen extends StatelessWidget {
 
   Widget _buildImage(String url) {
     if (!url.startsWith('http')) {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF5F5F5),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.image_outlined,
-                size: 24, color: AppColors.textSecondary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(url,
-                  style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
-                      fontStyle: FontStyle.italic)),
-            ),
-          ],
-        ),
-      );
+      return const SizedBox.shrink();
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),

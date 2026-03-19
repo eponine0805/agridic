@@ -54,6 +54,7 @@ class PostContent {
 
 class Post {
   final String postId;
+  final String userId;
   final bool isOfficial;
   final String userRole;
   final String userName;
@@ -74,6 +75,7 @@ class Post {
 
   Post({
     required this.postId,
+    this.userId = '',
     required this.isOfficial,
     required this.userRole,
     required this.userName,
@@ -99,6 +101,7 @@ class Post {
     final ts = m['timestamp'];
     return Post(
       postId: doc.id,
+      userId: (m['userId'] ?? '') as String,
       isOfficial: (m['isOfficial'] ?? false) as bool,
       userRole: (m['userRole'] ?? 'farmer') as String,
       userName: (m['userName'] ?? '') as String,
@@ -124,6 +127,7 @@ class Post {
   }
 
   Map<String, dynamic> toFirestore() => {
+        'userId': userId,
         'isOfficial': isOfficial,
         'userRole': userRole,
         'userName': userName,

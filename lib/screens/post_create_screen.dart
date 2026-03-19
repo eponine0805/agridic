@@ -204,8 +204,9 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
       await state.addPost(Post(
         postId: postId,
+        userId: userPrefs.userId,
         isOfficial: false,
-        userRole: 'farmer',
+        userRole: userPrefs.userRole,
         userName: userPrefs.userName,
         content: PostContent(
           textShort: _tweetTextCtrl.text.trim(),
@@ -242,8 +243,9 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
       await state.addPost(Post(
         postId: postId,
-        isOfficial: true,
-        userRole: 'expert',
+        userId: userPrefs.userId,
+        isOfficial: userPrefs.isExpert,
+        userRole: userPrefs.userRole,
         userName: userPrefs.userName,
         content: PostContent(
           textShort: shortParts.join(' '),

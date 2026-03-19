@@ -104,17 +104,8 @@ class RichTextContent extends StatelessWidget {
 
   static Widget _buildNetworkImage(String url, {bool highRes = true}) {
     if (!url.startsWith('http')) {
-      return Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        height: 80,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF5F5F5),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: const Center(
-          child: Icon(Icons.image_outlined, color: AppColors.textSecondary),
-        ),
-      );
+      // Non-HTTP URLs (demo placeholders etc.) — skip rendering
+      return const SizedBox.shrink();
     }
     final height = highRes ? null : 120.0;
     return Container(
