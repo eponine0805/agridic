@@ -37,6 +37,15 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
+      - name: Get SHA-1 fingerprint
+        run: |
+          echo '${{ secrets.RELEASE_KEYSTORE_BASE64 }}' | base64 -d > /tmp/temp.jks
+          keytool -list -v -keystore /tmp/temp.jks \
+            -alias agridic \
+            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
+            | grep SHA1
+          rm -f /tmp/temp.jks
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
