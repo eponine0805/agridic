@@ -70,6 +70,7 @@ class Post {
   final String dictCrop;
   final String dictCategory;
   final List<String> dictTags;
+  final bool inDictionary;
 
   Post({
     required this.postId,
@@ -89,6 +90,7 @@ class Post {
     this.dictCrop = '',
     this.dictCategory = '',
     this.dictTags = const [],
+    this.inDictionary = false,
   });
 
   factory Post.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -117,6 +119,7 @@ class Post {
       dictCrop: (m['dictCrop'] ?? '') as String,
       dictCategory: (m['dictCategory'] ?? '') as String,
       dictTags: List<String>.from(m['dictTags'] ?? []),
+      inDictionary: (m['inDictionary'] ?? false) as bool,
     );
   }
 
@@ -140,5 +143,6 @@ class Post {
         'dictCrop': dictCrop,
         'dictCategory': dictCategory,
         'dictTags': dictTags,
+        'inDictionary': inDictionary,
       };
 }

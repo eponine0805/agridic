@@ -39,7 +39,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   }
 
   List<Post> _getDictPosts(AppState state) =>
-      state.officialPosts.where((p) => p.dictCrop.isNotEmpty).toList();
+      state.posts.where((p) => p.isOfficial && p.inDictionary).toList();
 
   Map<String, int> _getCrops(AppState state) {
     final map = <String, int>{};

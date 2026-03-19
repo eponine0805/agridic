@@ -69,9 +69,7 @@ class RichTextContent extends StatelessWidget {
           final idx = int.parse(idxStr) - 1;
           if (idx >= 0 && idx < images.length) {
             final imgPath = images[idx];
-            result.add(useHighRes
-                ? _buildNetworkImage(imgPath)
-                : _buildImagePlaceholder(imgPath, idx + 1));
+            result.add(_buildNetworkImage(imgPath, highRes: useHighRes));
           }
         } catch (_) {
           result.add(Text(stripped, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary)));
@@ -104,10 +102,21 @@ class RichTextContent extends StatelessWidget {
     return result;
   }
 
-  static Widget _buildNetworkImage(String url) {
+  static Widget _buildNetworkImage(String url, {bool highRes = true}) {
     if (!url.startsWith('http')) {
-      return _buildImagePlaceholder(url, 0);
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        height: 80,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F5F5),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: const Center(
+          child: Icon(Icons.image_outlined, color: AppColors.textSecondary),
+        ),
+      );
     }
+    final height = highRes ? null : 120.0;
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ClipRRect(
@@ -115,16 +124,18 @@ class RichTextContent extends StatelessWidget {
         child: CachedNetworkImage(
           imageUrl: url,
           width: double.infinity,
+          height: height,
           fit: BoxFit.cover,
+          memCacheHeight: highRes ? null : 240,
           placeholder: (_, __) => Container(
-            height: 180,
+            height: height ?? 180,
             color: const Color(0xFFF5F5F5),
             child: const Center(
                 child: CircularProgressIndicator(
                     color: AppColors.primary, strokeWidth: 2)),
           ),
           errorWidget: (_, __, ___) => Container(
-            height: 100,
+            height: 80,
             color: const Color(0xFFF5F5F5),
             child: const Center(
                 child: Icon(Icons.broken_image_outlined,
@@ -135,32 +146,6 @@ class RichTextContent extends StatelessWidget {
     );
   }
 
-  static Widget _buildImagePlaceholder(String imgPath, int num) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.image_outlined, size: 20, color: AppColors.textSecondary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '[Image $num: $imgPath]',
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class StepsCard extends StatelessWidget {

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
 import '../providers/user_prefs.dart';
@@ -21,10 +22,8 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   bool _submitting = false;
 
-  // Location
-  bool _locationAuto = true;
-  (double, double)? _autoLocation;
-  bool _gettingLocation = false;
+  // Location: null means use AppState.currentLocation; non-null means user adjusted
+  (double, double)? _selectedLocation;
 
   // Tweet fields
   final _tweetTextCtrl = TextEditingController();
@@ -34,6 +33,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   final _rptTitleCtrl = TextEditingController();
   final _rptCropCtrl = TextEditingController();
   final _rptLocationCtrl = TextEditingController();
+  bool _inDictionary = false;
 
   // Block lists per mode
   final Map<String, List<Map<String, dynamic>>> _blocks = {
@@ -44,55 +44,12 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   int _blockCounter = 0;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _detectLocation());
-  }
-
-  @override
   void dispose() {
     _tweetTextCtrl.dispose();
     _rptTitleCtrl.dispose();
     _rptCropCtrl.dispose();
     _rptLocationCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _detectLocation() async {
-    if (!_locationAuto) return;
-    setState(() => _gettingLocation = true);
-    try {
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.deniedForever ||
-          perm == LocationPermission.denied) {
-        setState(() {
-          _gettingLocation = false;
-          _locationAuto = false;
-        });
-        _showError('Location permission denied. Enter location manually.');
-        return;
-      }
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 10),
-      );
-      if (mounted) {
-        setState(() {
-          _autoLocation = (pos.latitude, pos.longitude);
-          _gettingLocation = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _gettingLocation = false;
-          _autoLocation = null;
-        });
-      }
-    }
   }
 
   List<Map<String, dynamic>> get _currentBlocks => _blocks[_activeMode]!;
@@ -168,12 +125,21 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           lines.add(val);
           lines.add('');
         case 'bullets':
+          // Bullets stay inline as bullets, NOT collected into steps
           for (var line in val.split('\n')) {
             line = line.trim();
             if (line.isNotEmpty) {
               if (!line.startsWith('- ')) line = '- $line';
               lines.add(line);
-              steps.add(line.startsWith('- ') ? line.substring(2) : line);
+            }
+          }
+          lines.add('');
+        case 'action_plan':
+          // Action Plan explicitly becomes the numbered steps
+          for (var line in val.split('\n')) {
+            line = line.trim();
+            if (line.isNotEmpty) {
+              steps.add(line);
             }
           }
           lines.add('');
@@ -188,11 +154,26 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   }
 
   (double, double)? get _resolvedLocation {
+    if (_selectedLocation != null) return _selectedLocation;
     final state = context.read<AppState>();
-    if (_locationAuto) {
-      return _autoLocation ?? state.currentLocation;
-    }
+    if (state.locationReady) return state.currentLocation;
     return null;
+  }
+
+  Future<void> _openLocationPicker() async {
+    final state = context.read<AppState>();
+    final base = _selectedLocation ?? (state.locationReady ? state.currentLocation : null);
+    final initial = base != null
+        ? LatLng(base.$1, base.$2)
+        : const LatLng(-0.95, 36.87);
+
+    final result = await Navigator.push<(double, double)>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _LocationPickerScreen(initialLocation: initial),
+      ),
+    );
+    if (result != null) setState(() => _selectedLocation = result);
   }
 
   Future<void> _submit() async {
@@ -279,6 +260,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         location: _resolvedLocation,
         viewMode: _activeMode,
         dictCrop: crop,
+        inDictionary: _inDictionary,
       );
       await state.addPost(newPost);
     }
@@ -445,7 +427,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           ),
         ],
         const SizedBox(height: 12),
-        _buildLocationSelector(),
+        _buildLocationRow(),
       ],
     );
   }
@@ -472,7 +454,43 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        _buildLocationSelector(),
+        _buildLocationRow(),
+        const SizedBox(height: 8),
+        // Dictionary toggle
+        InkWell(
+          onTap: () => setState(() => _inDictionary = !_inDictionary),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: _inDictionary ? AppColors.modeActive : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _inDictionary ? AppColors.primary : AppColors.divider,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.menu_book_outlined, size: 16,
+                    color: _inDictionary ? AppColors.primary : AppColors.textSecondary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Add to Official Dictionary',
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: _inDictionary ? AppColors.primary : AppColors.textSecondary,
+                          fontWeight: _inDictionary ? FontWeight.w600 : FontWeight.normal)),
+                ),
+                Switch(
+                  value: _inDictionary,
+                  onChanged: (v) => setState(() => _inDictionary = v),
+                  activeColor: AppColors.primary,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ],
+            ),
+          ),
+        ),
         const SizedBox(height: 12),
         const Divider(height: 1, color: AppColors.divider),
         const SizedBox(height: 8),
@@ -495,92 +513,40 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     );
   }
 
-  Widget _buildLocationSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
+  Widget _buildLocationRow() {
+    return Consumer<AppState>(
+      builder: (context, state, _) {
+        final loc = _selectedLocation ?? (state.locationReady ? state.currentLocation : null);
+        return Row(
           children: [
-            Icon(Icons.location_on_outlined, size: 16, color: AppColors.primary),
-            SizedBox(width: 6),
-            Text('Location', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  setState(() => _locationAuto = true);
-                  _detectLocation();
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: _locationAuto ? AppColors.modeActive : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: _locationAuto ? AppColors.primary : AppColors.divider,
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.gps_fixed, size: 18,
-                          color: _locationAuto ? AppColors.primary : AppColors.textSecondary),
-                      const SizedBox(height: 2),
-                      Text('Auto-detect',
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: _locationAuto ? AppColors.primary : AppColors.textSecondary)),
-                      if (_locationAuto && _gettingLocation) ...[
-                        const SizedBox(height: 4),
-                        const SizedBox(
-                          height: 2,
-                          child: LinearProgressIndicator(),
-                        ),
-                      ] else if (_locationAuto && _autoLocation != null) ...[
-                        const SizedBox(height: 2),
-                        Text('📍 GPS ready',
-                            style: TextStyle(fontSize: 9, color: AppColors.primary)),
-                      ],
-                    ],
-                  ),
+            const Icon(Icons.location_on_outlined, size: 16, color: AppColors.primary),
+            const SizedBox(width: 4),
+            if (state.isDetectingLocation)
+              const Text('Getting location…',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary))
+            else if (loc != null)
+              Text(
+                '📍 ${loc.$1.toStringAsFixed(4)}, ${loc.$2.toStringAsFixed(4)}',
+                style: const TextStyle(fontSize: 12, color: AppColors.primary),
+              )
+            else
+              const Text('Location unavailable',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            const Spacer(),
+            if (!state.isDetectingLocation)
+              TextButton.icon(
+                onPressed: _openLocationPicker,
+                icon: const Icon(Icons.edit_location_outlined, size: 14),
+                label: const Text('Adjust', style: TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: GestureDetector(
-                onTap: () => setState(() => _locationAuto = false),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: !_locationAuto ? AppColors.modeActive : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: !_locationAuto ? AppColors.primary : AppColors.divider,
-                    ),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.edit_location_outlined, size: 18,
-                          color: !_locationAuto ? AppColors.primary : AppColors.textSecondary),
-                      const SizedBox(height: 2),
-                      Text('No GPS',
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: !_locationAuto ? AppColors.primary : AppColors.textSecondary)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -639,6 +605,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       'heading': AppColors.primary,
       'text': AppColors.divider,
       'bullets': AppColors.accent,
+      'action_plan': AppColors.primaryDark,
       'image': const Color(0xFF90CAF9),
     };
 
@@ -749,6 +716,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           _insertBtn(Icons.title, 'Heading', () => _addBlock('heading', afterId: afterId)),
           _insertBtn(Icons.text_fields, 'Text', () => _addBlock('text', afterId: afterId)),
           _insertBtn(Icons.format_list_bulleted, 'Bullets', () => _addBlock('bullets', afterId: afterId)),
+          _insertBtn(Icons.checklist_rtl, 'Action Plan', () => _addBlock('action_plan', afterId: afterId)),
           _insertBtn(Icons.image_outlined, 'Image', () => _addBlock('image', afterId: afterId)),
         ],
       ),
@@ -773,6 +741,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       'heading' => Icons.title,
       'text' => Icons.text_fields,
       'bullets' => Icons.format_list_bulleted,
+      'action_plan' => Icons.checklist_rtl,
       'image' => Icons.image_outlined,
       _ => Icons.square,
     };
@@ -783,7 +752,112 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       'heading' => 'Section heading…',
       'text' => 'Write paragraph text…',
       'bullets' => 'One bullet point per line…',
+      'action_plan' => 'One action step per line…',
       _ => '',
     };
+  }
+}
+
+// ─── Location Picker ───────────────────────────────────────────────────────
+
+class _LocationPickerScreen extends StatefulWidget {
+  final LatLng initialLocation;
+  const _LocationPickerScreen({required this.initialLocation});
+
+  @override
+  State<_LocationPickerScreen> createState() => __LocationPickerScreenState();
+}
+
+class __LocationPickerScreenState extends State<_LocationPickerScreen> {
+  late LatLng _center;
+
+  @override
+  void initState() {
+    super.initState();
+    _center = widget.initialLocation;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          Container(
+            color: AppColors.primary,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    const Text('Adjust location',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Spacer(),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context, (_center.latitude, _center.longitude)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      ),
+                      child: const Text('Confirm'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                FlutterMap(
+                  options: MapOptions(
+                    initialCenter: widget.initialLocation,
+                    initialZoom: 13.0,
+                    onMapEvent: (evt) {
+                      setState(() => _center = evt.camera.center);
+                    },
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+                      userAgentPackageName: 'com.agridic.app',
+                    ),
+                  ],
+                ),
+                // Fixed crosshair pin at center
+                const IgnorePointer(
+                  child: Icon(Icons.location_on, color: AppColors.primary, size: 40),
+                ),
+                // Coordinate display
+                Positioned(
+                  bottom: 16,
+                  left: 16,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.92),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_center.latitude.toStringAsFixed(5)}, ${_center.longitude.toStringAsFixed(5)}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

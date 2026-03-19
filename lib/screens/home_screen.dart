@@ -113,15 +113,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-    return ListView.builder(
-      itemCount: posts.length,
-      itemBuilder: (context, index) {
-        final post = posts[index];
-        return PostCard(
-          post: post,
-          onTap: () => _openDetail(context, post),
-        );
-      },
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () => state.detectLocation(),
+      child: ListView.builder(
+        itemCount: posts.length,
+        itemBuilder: (context, index) {
+          final post = posts[index];
+          return PostCard(
+            post: post,
+            onTap: () => _openDetail(context, post),
+          );
+        },
+      ),
     );
   }
 

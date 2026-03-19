@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
 import '../models/post.dart';
 import '../services/firebase_service.dart';
 
 class AppState extends ChangeNotifier {
   String searchQuery = '';
   (double, double) currentLocation = (-0.95, 36.87);
+  bool locationReady = false;
+  bool isDetectingLocation = false;
 
   List<Post> _posts = [];
   bool isLoading = true;
@@ -14,6 +17,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription<List<Post>>? _sub;
 
   AppState() {
+    detectLocation();
     _sub = FirebaseService.streamPosts().listen(
       (posts) {
         _posts = posts;
@@ -38,7 +42,32 @@ class AppState extends ChangeNotifier {
   List<Post> get visiblePosts => _posts.where((p) => !p.isHidden).toList();
 
   List<Post> get officialPosts =>
-      visiblePosts.where((p) => p.isOfficial && p.dictCrop.isNotEmpty).toList();
+      visiblePosts.where((p) => p.isOfficial && p.inDictionary).toList();
+
+  Future<void> detectLocation() async {
+    isDetectingLocation = true;
+    notifyListeners();
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.deniedForever ||
+          perm == LocationPermission.denied) {
+        isDetectingLocation = false;
+        notifyListeners();
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 10),
+      );
+      currentLocation = (pos.latitude, pos.longitude);
+      locationReady = true;
+    } catch (_) {}
+    isDetectingLocation = false;
+    notifyListeners();
+  }
 
   List<Post> filteredPosts(String query) {
     if (query.isEmpty) {

@@ -115,8 +115,7 @@ class DetailScreen extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          RichTextContent(
-              text: fullText, images: const [], stripImages: true),
+          RichTextContent(text: fullText, images: imgs, useHighRes: false),
           if (post.content.steps.isNotEmpty) ...[
             const SizedBox(height: 12),
             StepsCard(steps: post.content.steps),
