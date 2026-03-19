@@ -20,6 +20,12 @@ try:
 except ImportError:
     HAS_GEO = False
 
+try:
+    from auth import sign_up_email, sign_in_email, get_or_create_user_profile
+    HAS_AUTH = True
+except ImportError:
+    HAS_AUTH = False
+
 
 # ============================================================
 # ダミーデータ
@@ -354,6 +360,225 @@ class Colors:
 
 
 # ============================================================
+# ログイン画面
+# ============================================================
+
+def show_login_screen(page: ft.Page, on_success):
+    """Show the login/register screen. Calls on_success(user_data) after auth."""
+
+    tab_index = {"v": 0}  # 0 = Sign In, 1 = Register
+
+    # --- Input fields ---
+    display_name_field = ft.TextField(
+        hint_text="Display name",
+        prefix_icon=ft.Icons.PERSON_OUTLINE,
+        border_color=Colors.DIVIDER,
+        focused_border_color=Colors.PRIMARY,
+        border_radius=8,
+        text_size=15,
+        content_padding=ft.Padding(12, 14, 12, 14),
+        visible=False,
+    )
+    email_field = ft.TextField(
+        hint_text="Email",
+        prefix_icon=ft.Icons.EMAIL_OUTLINED,
+        keyboard_type=ft.KeyboardType.EMAIL,
+        border_color=Colors.DIVIDER,
+        focused_border_color=Colors.PRIMARY,
+        border_radius=8,
+        text_size=15,
+        content_padding=ft.Padding(12, 14, 12, 14),
+    )
+    password_field = ft.TextField(
+        hint_text="Password (min. 6 chars)",
+        prefix_icon=ft.Icons.LOCK_OUTLINE,
+        password=True,
+        can_reveal_password=True,
+        border_color=Colors.DIVIDER,
+        focused_border_color=Colors.PRIMARY,
+        border_radius=8,
+        text_size=15,
+        content_padding=ft.Padding(12, 14, 12, 14),
+    )
+
+    error_container = ft.Container(
+        visible=False,
+        bgcolor="#FFEBEE",
+        border_radius=8,
+        padding=ft.Padding(12, 10, 12, 10),
+        content=ft.Row([
+            ft.Icon(ft.Icons.ERROR_OUTLINE, color=Colors.DANGER, size=18),
+            ft.Text("", color=Colors.DANGER, size=13, expand=True, selectable=True),
+        ], spacing=8),
+    )
+
+    action_button = ft.ElevatedButton(
+        text="Sign in",
+        style=ft.ButtonStyle(
+            bgcolor=Colors.PRIMARY,
+            color="white",
+            shape=ft.RoundedRectangleBorder(radius=8),
+            padding=ft.Padding(0, 16, 0, 16),
+        ),
+        expand=True,
+    )
+
+    loading = ft.ProgressRing(width=20, height=20, stroke_width=2, color="white", visible=False)
+
+    def _set_error(msg: str):
+        error_container.content.controls[1].value = msg
+        error_container.visible = bool(msg)
+        page.update()
+
+    def _set_loading(busy: bool):
+        loading.visible = busy
+        action_button.disabled = busy
+        page.update()
+
+    def _do_auth(e):
+        _set_error("")
+        email = (email_field.value or "").strip()
+        password = (password_field.value or "").strip()
+        display_name = (display_name_field.value or "").strip()
+
+        if not email or not password:
+            _set_error("Please enter your email and password.")
+            return
+
+        _set_loading(True)
+        try:
+            if tab_index["v"] == 0:
+                result = sign_in_email(email, password)
+            else:
+                if not display_name:
+                    _set_error("Please enter a display name.")
+                    _set_loading(False)
+                    return
+                result = sign_up_email(email, password, display_name)
+
+            uid = result.get("localId", "")
+            name = result.get("displayName") or display_name or email.split("@")[0]
+            user_data = get_or_create_user_profile(uid, email, name)
+            on_success(user_data)
+
+        except Exception as exc:
+            _set_error(str(exc))
+            _set_loading(False)
+
+    action_button.on_click = _do_auth
+    password_field.on_submit = _do_auth
+
+    def _switch_tab(e):
+        idx = e.control.selected_index
+        tab_index["v"] = idx
+        is_register = idx == 1
+        display_name_field.visible = is_register
+        action_button.text = "Create account" if is_register else "Sign in"
+        _set_error("")
+        page.update()
+
+    tabs = ft.Tabs(
+        selected_index=0,
+        on_change=_switch_tab,
+        indicator_color=Colors.PRIMARY,
+        label_color=Colors.PRIMARY,
+        unselected_label_color=Colors.TEXT_SECONDARY,
+        tabs=[
+            ft.Tab(text="Sign In"),
+            ft.Tab(text="Register"),
+        ],
+    )
+
+    google_btn = ft.OutlinedButton(
+        content=ft.Row([
+            ft.Image(
+                src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg",
+                width=20, height=20,
+            ),
+            ft.Text("Continue with Google", size=15, color=Colors.TEXT_PRIMARY),
+        ], alignment=ft.MainAxisAlignment.CENTER, spacing=10),
+        style=ft.ButtonStyle(
+            side=ft.BorderSide(1, Colors.DIVIDER),
+            shape=ft.RoundedRectangleBorder(radius=8),
+            padding=ft.Padding(0, 14, 0, 14),
+        ),
+        expand=True,
+        on_click=lambda _: _set_error(
+            "Google Sign-In requires additional setup.\n"
+            "Enable Google provider in Firebase Console → "
+            "Authentication → Sign-in method, then rebuild the app."
+        ),
+    )
+
+    form_card = ft.Container(
+        content=ft.Column([
+            tabs,
+            ft.Divider(height=1, color=Colors.DIVIDER),
+            ft.Container(
+                content=ft.Column([
+                    display_name_field,
+                    email_field,
+                    password_field,
+                    error_container,
+                    ft.Stack([
+                        action_button,
+                        ft.Container(
+                            content=loading,
+                            alignment=ft.alignment.center,
+                        ),
+                    ], height=52),
+                ], spacing=12),
+                padding=ft.Padding(20, 16, 20, 20),
+            ),
+        ], spacing=0),
+        bgcolor=Colors.SURFACE,
+        border_radius=16,
+        shadow=ft.BoxShadow(0, 4, ft.Colors.with_opacity(0.1, "black"), ft.Offset(0, 2)),
+    )
+
+    google_card = ft.Container(
+        content=ft.Row([google_btn], alignment=ft.MainAxisAlignment.CENTER),
+        bgcolor=Colors.SURFACE,
+        border_radius=16,
+        padding=ft.Padding(20, 12, 20, 12),
+        shadow=ft.BoxShadow(0, 2, ft.Colors.with_opacity(0.08, "black"), ft.Offset(0, 1)),
+    )
+
+    login_view = ft.Column(
+        controls=[
+            ft.Container(height=48),
+            ft.Row([
+                ft.Icon(ft.Icons.ECO, color=Colors.PRIMARY, size=32),
+                ft.Text("Agridic", size=28, weight=ft.FontWeight.BOLD,
+                        color=Colors.PRIMARY_DARK, font_family="Outfit"),
+            ], spacing=10),
+            ft.Text(
+                "Agricultural disease community\nfor Kenyan farmers",
+                size=14, color=Colors.TEXT_SECONDARY,
+            ),
+            ft.Container(height=16),
+            form_card,
+            ft.Container(height=12),
+            google_card,
+        ],
+        scroll=ft.ScrollMode.AUTO,
+        expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.START,
+    )
+
+    login_page = ft.Container(
+        content=login_view,
+        bgcolor=Colors.BACKGROUND,
+        padding=ft.Padding(24, 0, 24, 24),
+        expand=True,
+    )
+
+    page.controls.clear()
+    page.add(login_page)
+    page.update()
+
+
+# ============================================================
 # メインアプリ
 # ============================================================
 
@@ -378,6 +603,7 @@ def main(page: ft.Page):
     # グローバル状態 (State)
     # ------------------------------------------------------------
     state = {
+        "current_user": None,  # set after login: {"uid", "email", "display_name", "role"}
         "search_mode": ViewMode.TEXT,
         "detail_mode": ViewMode.TEXT,
         "search_query": "",
@@ -908,11 +1134,12 @@ def main(page: ft.Page):
                     _show_error("Please enter some text.")
                     return
                 img_path = dlg_state.get("tweet_image_path", "")
+                _cu = state.get("current_user") or {}
                 new_post = Post(
                     post_id=f"new_{len(DUMMY_POSTS)}_{int(datetime.now().timestamp())}",
                     is_official=False,
-                    user_role="farmer",
-                    user_name="You",
+                    user_role=_cu.get("role", "farmer"),
+                    user_name=_cu.get("display_name", "You"),
                     content=PostContent(
                         text_short=tweet_text.value.strip(),
                         image_low=img_path,
@@ -943,11 +1170,12 @@ def main(page: ft.Page):
                 active_blocks = dlg_state[f"blocks_{active_mode}"]
                 tf, imgs, steps = _blocks_to_text(active_blocks)
 
+                _cu = state.get("current_user") or {}
                 new_post = Post(
                     post_id=f"new_{len(DUMMY_POSTS)}_{int(datetime.now().timestamp())}",
                     is_official=True,
-                    user_role="expert",
-                    user_name="You (Expert)",
+                    user_role=_cu.get("role", "expert"),
+                    user_name=_cu.get("display_name", "You"),
                     content=PostContent(
                         text_short=" ".join(short_parts),
                         text_full=tf,
@@ -1746,6 +1974,7 @@ def main(page: ft.Page):
         icon=ft.Icons.ADD,
         bgcolor=Colors.PRIMARY,
         on_click=lambda _: open_post_dialog(),
+        visible=not HAS_AUTH,  # hidden until login succeeds
     )
 
     # ============================================================
@@ -2205,12 +2434,115 @@ def main(page: ft.Page):
         elif idx == 3:
             # Map
             open_map_view()
+        elif idx == 4:
+            # Profile
+            open_profile_view()
+            e.control.selected_index = 0
+            page.update()
+
+    def open_profile_view():
+        """プロフィール画面 (ログアウト含む)"""
+        cu = state.get("current_user") or {}
+        role = cu.get("role", "farmer")
+        role_color = {"admin": Colors.DANGER, "expert": Colors.ACCENT}.get(role, Colors.PRIMARY)
+        role_label = {"admin": "Admin", "expert": "Expert", "farmer": "Farmer"}.get(role, role.title())
+
+        def _logout(e):
+            state["current_user"] = None
+            page.navigation_bar.visible = False
+            if page.floating_action_button:
+                page.floating_action_button.visible = False
+            show_login_screen(page, _on_login_success)
+
+        profile_header = ft.Container(
+            content=ft.Row([
+                ft.IconButton(ft.Icons.ARROW_BACK, icon_color="white", icon_size=20, on_click=lambda e: _pop_screen()),
+                ft.Text("Profile", size=18, weight=ft.FontWeight.BOLD, color="white"),
+            ], spacing=4),
+            bgcolor=Colors.PRIMARY,
+            padding=ft.Padding(8, 12, 16, 12),
+        )
+
+        avatar = ft.Container(
+            content=ft.Text(
+                (cu.get("display_name") or "?")[0].upper(),
+                size=32, weight=ft.FontWeight.BOLD, color="white",
+            ),
+            width=72, height=72,
+            bgcolor=Colors.PRIMARY,
+            border_radius=36,
+            alignment=ft.alignment.center,
+        )
+
+        profile_card = ft.Container(
+            content=ft.Column([
+                ft.Container(height=8),
+                ft.Row([avatar], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Container(height=8),
+                ft.Text(
+                    cu.get("display_name", "—"),
+                    size=20, weight=ft.FontWeight.BOLD,
+                    color=Colors.TEXT_PRIMARY,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Text(
+                    cu.get("email", ""),
+                    size=13, color=Colors.TEXT_SECONDARY,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Container(height=6),
+                ft.Container(
+                    content=ft.Text(role_label, size=12, color="white", weight=ft.FontWeight.W_600),
+                    bgcolor=role_color,
+                    border_radius=12,
+                    padding=ft.Padding(12, 4, 12, 4),
+                ),
+                ft.Container(height=12),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4),
+            bgcolor=Colors.SURFACE,
+            border_radius=16,
+            padding=ft.Padding(20, 8, 20, 8),
+            shadow=ft.BoxShadow(0, 2, ft.Colors.with_opacity(0.08, "black"), ft.Offset(0, 1)),
+        )
+
+        logout_btn = ft.ElevatedButton(
+            text="Sign Out",
+            icon=ft.Icons.LOGOUT,
+            style=ft.ButtonStyle(
+                bgcolor=Colors.DANGER,
+                color="white",
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=ft.Padding(0, 14, 0, 14),
+            ),
+            expand=True,
+            on_click=_logout,
+        )
+
+        profile_layout = ft.Column(
+            controls=[
+                profile_header,
+                ft.Container(
+                    content=ft.Column([
+                        ft.Container(height=8),
+                        profile_card,
+                        ft.Container(height=16),
+                        ft.Row([logout_btn]),
+                    ], spacing=0),
+                    padding=ft.Padding(16, 0, 16, 16),
+                    expand=True,
+                ),
+            ],
+            spacing=0,
+            expand=True,
+        )
+        _push_screen([profile_layout], hide_fab=True, hide_nav=True)
 
     bottom_nav = ft.NavigationBar(
         selected_index=0,
         bgcolor=Colors.SURFACE,
         indicator_color=Colors.MODE_ACTIVE,
         on_change=on_nav_change,
+        visible=not HAS_AUTH,  # hidden until login succeeds
         destinations=[
             ft.NavigationBarDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="Home"),
             ft.NavigationBarDestination(icon=ft.Icons.MENU_BOOK_OUTLINED, selected_icon=ft.Icons.MENU_BOOK, label="Dict"),
@@ -2228,7 +2560,21 @@ def main(page: ft.Page):
         expand=True,
     )
 
-    page.add(main_layout)
+    def _on_login_success(user_data: dict):
+        state["current_user"] = user_data
+        page.controls.clear()
+        page.navigation_bar = bottom_nav
+        page.navigation_bar.visible = True
+        if page.floating_action_button:
+            page.floating_action_button.visible = True
+        page.add(main_layout)
+        page.update()
+
+    if HAS_AUTH:
+        show_login_screen(page, _on_login_success)
+    else:
+        # auth module not available: go straight to app (dev/offline mode)
+        page.add(main_layout)
 
 
 if __name__ == "__main__":
