@@ -54,6 +54,10 @@ class _LoginScreenState extends State<LoginScreen>
     });
     final err = await context.read<UserPrefs>().signIn(email, pass);
     if (!mounted) return;
+    if (err == null) {
+      Navigator.of(context).pop();
+      return;
+    }
     setState(() {
       _busy = false;
       _error = err;
@@ -78,6 +82,10 @@ class _LoginScreenState extends State<LoginScreen>
     });
     final err = await context.read<UserPrefs>().register(email, pass, name);
     if (!mounted) return;
+    if (err == null) {
+      Navigator.of(context).pop();
+      return;
+    }
     setState(() {
       _busy = false;
       _error = err;
@@ -91,6 +99,10 @@ class _LoginScreenState extends State<LoginScreen>
     });
     final err = await context.read<UserPrefs>().signInWithGoogle();
     if (!mounted) return;
+    if (err == null && context.read<UserPrefs>().isLoggedIn) {
+      Navigator.of(context).pop();
+      return;
+    }
     setState(() {
       _busy = false;
       _error = err;
