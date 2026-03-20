@@ -514,6 +514,37 @@ class _ProfileScreenState extends State<_ProfileScreen> {
               ),
             ),
           ),
+          // ── Admin bootstrap ──────────────────────────
+          if (!isAdmin) ...[
+            const SizedBox(height: 12),
+            _SettingsTile(
+              icon: Icons.admin_panel_settings_outlined,
+              label: 'Claim admin (if no admin exists)',
+              labelColor: AppColors.textSecondary,
+              onTap: () async {
+                final claimed =
+                    await context.read<UserPrefs>().claimAdminIfNoneExists();
+                if (!context.mounted) return;
+                if (claimed) {
+                  await context.read<UserPrefs>().reloadRole();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('You are now admin!'),
+                      backgroundColor: AppColors.primary,
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                          'An admin already exists. Ask them to promote you.'),
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
           // ── Admin Panel ──────────────────────────────
           if (isAdmin) ...[
             const SizedBox(height: 20),

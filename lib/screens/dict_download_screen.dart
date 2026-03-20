@@ -16,42 +16,52 @@ class DictDownloadScreen extends StatefulWidget {
 }
 
 class _DictDownloadScreenState extends State<DictDownloadScreen> {
-  int _dictCount = 0;
-  bool _loadingCount = true;
+  ({int count, int textBytes, int thumbBytes, int fullBytes})? _info;
+  bool _loadingInfo = true;
   bool _downloading = false;
   int _downloadedCount = 0;
   String? _downloadError;
   bool _done = false;
 
-  // Per-entry estimated sizes in KB
-  static const _textKb = 5;
-  static const _thumbKb = 50;
-  static const _fullKb = 500;
+  /// 0 = text only, 1 = text + thumbnails, 2 = text + full images
+  int _selectedMode = 1;
 
   @override
   void initState() {
     super.initState();
-    _fetchCount();
+    _fetchInfo();
   }
 
-  Future<void> _fetchCount() async {
+  Future<void> _fetchInfo() async {
     try {
-      final n = await FirebaseService.getDictionaryPostCount();
+      final info = await FirebaseService.getDictionaryInfo();
       if (mounted) setState(() {
-        _dictCount = n;
-        _loadingCount = false;
+        _info = info;
+        _loadingInfo = false;
       });
     } catch (_) {
       if (mounted) setState(() {
-        _dictCount = 0;
-        _loadingCount = false;
+        _info = (count: 0, textBytes: 0, thumbBytes: 0, fullBytes: 0);
+        _loadingInfo = false;
       });
     }
   }
 
-  String _formatKb(int kb) {
-    if (kb < 1024) return '~${kb}KB';
-    return '~${(kb / 1024).toStringAsFixed(1)}MB';
+  String _formatBytes(int bytes) {
+    if (bytes == 0) return '0 B';
+    if (bytes < 1024) return '${bytes}B';
+    if (bytes < 1024 * 1024) return '~${(bytes / 1024).round()}KB';
+    return '~${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
+  }
+
+  int get _selectedBytes {
+    final info = _info;
+    if (info == null) return 0;
+    return switch (_selectedMode) {
+      0 => info.textBytes,
+      1 => info.thumbBytes,
+      _ => info.fullBytes,
+    };
   }
 
   Future<void> _startDownload() async {
@@ -65,8 +75,7 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
       final prefs = await SharedPreferences.getInstance();
       final jsonList = <String>[];
       for (final post in posts) {
-        // Store only JSON-safe fields (no Timestamp/FieldValue objects)
-        final entry = {
+        final entry = <String, dynamic>{
           'postId': post.postId,
           'userId': post.userId,
           'isOfficial': post.isOfficial,
@@ -78,14 +87,22 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
           'inDictionary': post.inDictionary,
           'textShort': post.content.textShort,
           'textFull': post.content.textFull,
-          'imageLow': post.content.imageLow,
           'steps': post.content.steps,
         };
+        // モードに応じて画像URLを含める
+        if (_selectedMode >= 1) {
+          entry['imageLow'] = post.content.imageLow;
+        }
+        if (_selectedMode >= 2) {
+          entry['imageHigh'] = post.content.imageHigh;
+          entry['images'] = post.content.images;
+        }
         jsonList.add(jsonEncode(entry));
         if (mounted) setState(() => _downloadedCount++);
         await Future.delayed(const Duration(milliseconds: 10));
       }
       await prefs.setStringList('dict_cache', jsonList);
+      await prefs.setInt('dict_cache_mode', _selectedMode);
       await context.read<UserPrefs>().markFirstDownloadDone();
       if (mounted) setState(() {
         _downloading = false;
@@ -130,6 +147,9 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
   }
 
   Widget _buildMainView() {
+    final info = _info;
+    final count = info?.count ?? 0;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -151,29 +171,36 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
           ),
           const SizedBox(height: 24),
         ],
-        if (_loadingCount)
+        if (_loadingInfo)
           const Center(
             child: CircularProgressIndicator(color: AppColors.primary),
           )
         else ...[
           Text(
-            _dictCount == 0
+            count == 0
                 ? 'No dictionary entries available yet.'
-                : '$_dictCount guide${_dictCount == 1 ? '' : 's'} available',
+                : '$count guide${count == 1 ? '' : 's'} available',
             style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: AppColors.textPrimary),
           ),
-          const SizedBox(height: 16),
-          if (_dictCount > 0) ...[
+          const SizedBox(height: 4),
+          const Text(
+            'Choose what to include in your download:',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 12),
+          if (count > 0) ...[
             _ModeCard(
               icon: Icons.text_snippet_outlined,
               label: 'Text only',
               description:
                   'Guide text without images. Best for very weak signal.',
-              size: _formatKb(_dictCount * _textKb),
+              size: _formatBytes(info!.textBytes),
               color: AppColors.primary,
+              isSelected: _selectedMode == 0,
+              onTap: () => setState(() => _selectedMode = 0),
             ),
             const SizedBox(height: 10),
             _ModeCard(
@@ -181,28 +208,32 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
               label: 'Text + thumbnails',
               description:
                   'Text with small images. Standard for everyday use.',
-              size: _formatKb(_dictCount * _thumbKb),
+              size: _formatBytes(info.thumbBytes),
               color: const Color(0xFF388E3C),
+              isSelected: _selectedMode == 1,
+              onTap: () => setState(() => _selectedMode = 1),
             ),
             const SizedBox(height: 10),
             _ModeCard(
               icon: Icons.image_outlined,
               label: 'Text + full images',
               description: 'Full-quality images. Recommended on Wi-Fi.',
-              size: _formatKb(_dictCount * _fullKb),
+              size: _formatBytes(info.fullBytes),
               color: const Color(0xFF1565C0),
+              isSelected: _selectedMode == 2,
+              onTap: () => setState(() => _selectedMode = 2),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Size estimates are approximate. Your download includes all text and any available images.',
-              style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+            Text(
+              'Selected: ${_formatBytes(_selectedBytes)} — size includes text and any available images.',
+              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
             ),
           ],
         ],
         const Spacer(),
         if (_downloading) ...[
           Text(
-            'Downloading... $_downloadedCount / $_dictCount',
+            'Downloading... $_downloadedCount / ${_info?.count ?? 0}',
             style: const TextStyle(
                 fontSize: 13,
                 color: AppColors.primary,
@@ -210,7 +241,9 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
           ),
           const SizedBox(height: 8),
           LinearProgressIndicator(
-            value: _dictCount > 0 ? _downloadedCount / _dictCount : null,
+            value: ((_info?.count ?? 0) > 0)
+                ? _downloadedCount / _info!.count
+                : null,
             backgroundColor: AppColors.modeActive,
             color: AppColors.primary,
             minHeight: 8,
@@ -237,7 +270,7 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
               child: SizedBox(
                 height: 48,
                 child: ElevatedButton(
-                  onPressed: (_downloading || _loadingCount || _dictCount == 0)
+                  onPressed: (_downloading || _loadingInfo || count == 0)
                       ? null
                       : _startDownload,
                   style: ElevatedButton.styleFrom(
@@ -322,6 +355,8 @@ class _ModeCard extends StatelessWidget {
   final String description;
   final String size;
   final Color color;
+  final bool isSelected;
+  final VoidCallback onTap;
 
   const _ModeCard({
     required this.icon,
@@ -329,51 +364,69 @@ class _ModeCard extends StatelessWidget {
     required this.description,
     required this.size,
     required this.color,
+    required this.isSelected,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: color)),
-                const SizedBox(height: 2),
-                Text(description,
-                    style: const TextStyle(
-                        fontSize: 12, color: AppColors.textSecondary)),
-              ],
-            ),
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withOpacity(0.10) : color.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? color : color.withOpacity(0.2),
+            width: isSelected ? 2 : 1,
           ),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          children: [
+            Radio<bool>(
+              value: true,
+              groupValue: isSelected,
+              onChanged: (_) => onTap(),
+              activeColor: color,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
             ),
-            child: Text(size,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: color)),
-          ),
-        ],
+            const SizedBox(width: 8),
+            Icon(icon, color: color, size: 26),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: color)),
+                  const SizedBox(height: 2),
+                  Text(description,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(size,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: color)),
+            ),
+          ],
+        ),
       ),
     );
   }

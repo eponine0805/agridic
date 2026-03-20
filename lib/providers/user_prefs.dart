@@ -177,11 +177,25 @@ class UserPrefs extends ChangeNotifier {
       await _user?.updateDisplayName(name);
       await _db.collection('users').doc(_user!.uid).set(
           {'userName': name}, SetOptions(merge: true));
+      // Firebase Auth のキャッシュを再読み込みして displayName を反映させる
+      await _auth.currentUser?.reload();
+      _user = _auth.currentUser;
       notifyListeners();
       return null;
     } catch (e) {
       return 'Failed to update name';
     }
+  }
+
+  /// adminが存在しない場合のみ自分をadminに昇格する（初回bootstrap用）
+  /// 戻り値: true = 昇格成功, false = 既にadminが存在する
+  Future<bool> claimAdminIfNoneExists() async {
+    if (_user == null) return false;
+    final claimed = await _tryClaimFirstAdmin(_user!.uid);
+    if (claimed) {
+      notifyListeners();
+    }
+    return claimed;
   }
 
   Future<void> markFirstDownloadDone() async {
