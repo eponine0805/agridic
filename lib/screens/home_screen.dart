@@ -34,6 +34,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // ローカルキャッシュ（辞書ダウンロード済みデータ）
   List<Post> _dictCache = [];
 
+  double _bottomOverscroll = 0;
+
   static const _crops = ['Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
 
   // Category filters: label → dictCategory value (empty = no filter)
@@ -511,42 +513,71 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    return RefreshIndicator(
-      color: AppColors.primary,
-      onRefresh: state.refresh,
-      child: ListView.builder(
-        controller: _scrollCtrl,
-        // +1 for the bottom indicator row
-        itemCount: posts.length + 1,
-        itemBuilder: (context, index) {
-          if (index == posts.length) {
-            // bottom indicator
-            if (state.loadingMore) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Center(
-                  child: CircularProgressIndicator(
-                      color: AppColors.primary, strokeWidth: 2),
-                ),
-              );
-            }
-            if (!state.hasMore) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(
-                  child: Text('— no more posts —',
-                      style: TextStyle(
-                          fontSize: 12, color: AppColors.textSecondary)),
-                ),
-              );
-            }
-            return const SizedBox.shrink();
+    return NotificationListener<OverscrollNotification>(
+      onNotification: (n) {
+        if (n.overscroll > 0 && !state.loadingMore) {
+          final newVal = _bottomOverscroll + n.overscroll;
+          setState(() => _bottomOverscroll = newVal.clamp(0, 80));
+          if (newVal >= 80) {
+            setState(() => _bottomOverscroll = 0);
+            state.refresh();
           }
-          return PostCard(
-            post: posts[index],
-            onTap: () => _openDetail(context, posts[index]),
-          );
-        },
+        } else if (n.overscroll < 0 && _bottomOverscroll > 0) {
+          setState(() => _bottomOverscroll = 0);
+        }
+        return false;
+      },
+      child: RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: state.refresh,
+        child: ListView.builder(
+          controller: _scrollCtrl,
+          physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics()),
+          // +1 for the bottom indicator row
+          itemCount: posts.length + 1,
+          itemBuilder: (context, index) {
+            if (index == posts.length) {
+              // bottom indicator
+              if (state.loadingMore) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                        color: AppColors.primary, strokeWidth: 2),
+                  ),
+                );
+              }
+              if (!state.hasMore) {
+                final progress = (_bottomOverscroll / 80).clamp(0.0, 1.0);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: progress > 0
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              value: progress,
+                              color: AppColors.primary,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text('— no more posts —',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary)),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            }
+            return PostCard(
+              post: posts[index],
+              onTap: () => _openDetail(context, posts[index]),
+            );
+          },
+        ),
       ),
     );
   }
