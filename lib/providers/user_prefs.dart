@@ -19,6 +19,7 @@ class UserPrefs extends ChangeNotifier {
 
   User? _user;
   String _role = 'farmer';
+  String _bio = '';
   bool _firstDownloadDone = false;
   bool _loading = true;
 
@@ -36,6 +37,7 @@ class UserPrefs extends ChangeNotifier {
           : (_user?.email?.split('@').first ?? '');
   String get userEmail => _user?.email ?? '';
   String get userRole => _role;
+  String get userBio => _bio;
   bool get isAdmin => _role == 'admin';
   bool get isExpert => _role == 'expert' || _role == 'admin';
   bool get firstDownloadDone => _firstDownloadDone;
@@ -76,11 +78,14 @@ class UserPrefs extends ChangeNotifier {
       final doc = await _db.collection('users').doc(uid).get();
       if (doc.exists) {
         _role = (doc.data()?['role'] ?? 'farmer') as String;
+        _bio = (doc.data()?['bio'] ?? '') as String;
       } else {
         _role = 'farmer';
+        _bio = '';
       }
     } catch (_) {
       _role = 'farmer';
+      _bio = '';
     }
   }
 
@@ -223,6 +228,18 @@ class UserPrefs extends ChangeNotifier {
     if (_user == null) return;
     await _loadRole(_user!.uid);
     notifyListeners();
+  }
+
+  Future<String?> updateBio(String newBio) async {
+    try {
+      await _db.collection('users').doc(_user!.uid).set(
+          {'bio': newBio.trim()}, SetOptions(merge: true));
+      _bio = newBio.trim();
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to update bio';
+    }
   }
 
   Future<String?> updateDisplayName(String newName) async {

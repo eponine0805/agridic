@@ -12,11 +12,9 @@ import 'screens/map_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/dict_download_screen.dart';
 import 'screens/admin_users_screen.dart';
-import 'screens/detail_screen.dart';
 import 'screens/user_posts_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'utils/app_colors.dart';
-import 'widgets/post_card.dart';
 
 /// バックグラウンド / 終了状態でのプッシュ通知受信ハンドラ
 /// トップレベル関数でなければならない
@@ -399,21 +397,38 @@ class _ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<_ProfileScreen> {
-  Future<void> _editDisplayName() async {
+  Future<void> _editProfile() async {
     final userPrefs = context.read<UserPrefs>();
-    final ctrl = TextEditingController(text: userPrefs.userName);
+    final nameCtrl = TextEditingController(text: userPrefs.userName);
+    final bioCtrl = TextEditingController(text: userPrefs.userBio);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Edit display name'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Display name',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
+        title: const Text('Edit profile'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Display name',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: bioCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Bio',
+                hintText: 'Tell us about yourself…',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -429,8 +444,10 @@ class _ProfileScreenState extends State<_ProfileScreen> {
       ),
     );
     if (confirmed == true && mounted) {
-      final err = await userPrefs.updateDisplayName(ctrl.text);
+      final nameErr = await userPrefs.updateDisplayName(nameCtrl.text);
+      final bioErr = await userPrefs.updateBio(bioCtrl.text);
       if (!mounted) return;
+      final err = nameErr ?? bioErr;
       if (err != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(err),
@@ -438,7 +455,8 @@ class _ProfileScreenState extends State<_ProfileScreen> {
         ));
       }
     }
-    ctrl.dispose();
+    nameCtrl.dispose();
+    bioCtrl.dispose();
   }
 
   Color _roleColor(String role) => switch (role) {
@@ -450,10 +468,7 @@ class _ProfileScreenState extends State<_ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final userPrefs = context.watch<UserPrefs>();
-    final appState = context.watch<AppState>();
     final isAdmin = userPrefs.isAdmin;
-    final myPosts = appState.postsBy(userPrefs.userId);
-    final totalLikes = myPosts.fold<int>(0, (sum, p) => sum + p.likes);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -478,23 +493,12 @@ class _ProfileScreenState extends State<_ProfileScreen> {
           ),
           const SizedBox(height: 12),
           Center(
-            child: GestureDetector(
-              onTap: _editDisplayName,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    userPrefs.userName,
-                    style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary),
-                  ),
-                  const SizedBox(width: 6),
-                  const Icon(Icons.edit_outlined,
-                      size: 16, color: AppColors.textSecondary),
-                ],
-              ),
+            child: Text(
+              userPrefs.userName,
+              style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary),
             ),
           ),
           Center(
@@ -524,94 +528,54 @@ class _ProfileScreenState extends State<_ProfileScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 20),
-          // Stats card
-          Row(
-            children: [
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.article_outlined,
-                  value: '${myPosts.length}',
-                  label: 'Posts',
-                ),
+          if (userPrefs.userBio.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Center(
+              child: Text(
+                userPrefs.userBio,
+                style: const TextStyle(
+                    fontSize: 13, color: AppColors.textPrimary),
+                textAlign: TextAlign.center,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.favorite_outline,
-                  value: '$totalLikes',
-                  label: 'Likes received',
-                ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: _editProfile,
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              label: const Text('Edit profile'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 24),
-          // My Posts section
-          GestureDetector(
+          const SizedBox(height: 20),
+          // My Posts button
+          _SettingsTile(
+            icon: Icons.article_outlined,
+            label: 'My Posts',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => UserPostsScreen(
-                  userId: userPrefs.userId,
-                  userName: userPrefs.userName,
+                builder: (_) => MultiProvider(
+                  providers: [
+                    ChangeNotifierProvider.value(
+                        value: context.read<AppState>()),
+                    ChangeNotifierProvider.value(
+                        value: context.read<UserPrefs>()),
+                  ],
+                  child: UserPostsScreen(
+                    userId: userPrefs.userId,
+                    userName: userPrefs.userName,
+                    isOwn: true,
+                  ),
                 ),
               ),
-            ),
-            child: Row(
-              children: [
-                const Text('My Posts',
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary)),
-                const Spacer(),
-                const Icon(Icons.chevron_right,
-                    size: 18, color: AppColors.textSecondary),
-              ],
             ),
           ),
-          const SizedBox(height: 8),
-          if (myPosts.isEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              alignment: Alignment.center,
-              child: const Text('No posts yet',
-                  style: TextStyle(
-                      fontSize: 13, color: AppColors.textSecondary)),
-            )
-          else
-            for (final post in myPosts.take(3))
-              PostCard(
-                post: post,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => DetailScreen(post: post)),
-                ),
-              ),
-          if (myPosts.length > 3)
-            Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 8),
-              child: Center(
-                child: TextButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => UserPostsScreen(
-                        userId: userPrefs.userId,
-                        userName: userPrefs.userName,
-                      ),
-                    ),
-                  ),
-                  child: Text(
-                    'View all ${myPosts.length} posts →',
-                    style: const TextStyle(
-                        color: AppColors.primary, fontSize: 13),
-                  ),
-                ),
-              ),
-            ),
-          const SizedBox(height: 16),
           const Divider(),
           const SizedBox(height: 8),
           _SettingsTile(

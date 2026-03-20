@@ -17,8 +17,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _cropFilter = '';
+  String _categoryFilter = '';
   String _typeFilter = 'all';
   String _sortOption = 'newest';
+
+  // Filter panel state
+  bool _filtersVisible = false;
+  bool _cropsExpanded = false;
 
   final _ownScrollCtrl = ScrollController();
   ScrollController get _scrollCtrl =>
@@ -29,8 +34,16 @@ class _HomeScreenState extends State<HomeScreen> {
   // ローカルキャッシュ（辞書ダウンロード済みデータ）
   List<Post> _dictCache = [];
 
-  static const _crops = ['', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
-  static const _cropLabels = ['All', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
+  static const _crops = ['Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
+
+  // Category filters: label → dictCategory value (empty = no filter)
+  static const _categoryFilters = [
+    ('', 'All'),
+    ('Pests & Diseases', 'Disease / Pest'),
+    ('Growing Guide', 'Growing Guide'),
+    ('Fertilizer', 'Fertilizer'),
+    ('Harvest & Storage', 'Harvest & Storage'),
+  ];
 
   @override
   void initState() {
@@ -59,6 +72,162 @@ class _HomeScreenState extends State<HomeScreen> {
         _scrollCtrl.position.maxScrollExtent - 200) {
       context.read<AppState>().loadMore();
     }
+  }
+
+  Widget _buildFilterPanel() {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Crops section ──────────────────────────────────────
+          _FilterSectionHeader(
+            label: 'Crops',
+            isExpanded: _cropsExpanded,
+            isActive: _cropFilter.isNotEmpty,
+            onTap: () =>
+                setState(() => _cropsExpanded = !_cropsExpanded),
+            onClear: _cropFilter.isNotEmpty
+                ? () => setState(() => _cropFilter = '')
+                : null,
+          ),
+          if (_cropsExpanded) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: _crops.map((crop) {
+                final selected = _cropFilter == crop;
+                return FilterChip(
+                  label: Text(crop,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color:
+                              selected ? Colors.white : AppColors.textSecondary)),
+                  selected: selected,
+                  onSelected: (_) =>
+                      setState(() => _cropFilter = selected ? '' : crop),
+                  selectedColor: AppColors.primary,
+                  checkmarkColor: Colors.white,
+                  backgroundColor: AppColors.background,
+                  side: BorderSide(
+                      color: selected ? AppColors.primary : AppColors.divider),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  visualDensity: VisualDensity.compact,
+                );
+              }).toList(),
+            ),
+          ],
+          const SizedBox(height: 10),
+          const Divider(height: 1, color: AppColors.divider),
+          const SizedBox(height: 10),
+          // ── Category section ───────────────────────────────────
+          const Text('Category',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: _categoryFilters.map((entry) {
+              final (value, label) = entry;
+              final selected = _categoryFilter == value;
+              return FilterChip(
+                label: Text(label,
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: selected
+                            ? Colors.white
+                            : AppColors.textSecondary)),
+                selected: selected,
+                onSelected: (_) =>
+                    setState(() => _categoryFilter = selected ? '' : value),
+                selectedColor: AppColors.accent,
+                checkmarkColor: Colors.white,
+                backgroundColor: AppColors.background,
+                side: BorderSide(
+                    color:
+                        selected ? AppColors.accent : AppColors.divider),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                visualDensity: VisualDensity.compact,
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 10),
+          const Divider(height: 1, color: AppColors.divider),
+          const SizedBox(height: 10),
+          // ── Post type section ──────────────────────────────────
+          const Text('Post type',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary)),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              for (final entry in const [
+                ('all', 'All'),
+                ('official', 'Official'),
+                ('community', 'Community'),
+              ])
+                FilterChip(
+                  label: Text(entry.$2,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: _typeFilter == entry.$1
+                              ? Colors.white
+                              : AppColors.textSecondary)),
+                  selected: _typeFilter == entry.$1,
+                  onSelected: (_) =>
+                      setState(() => _typeFilter = entry.$1),
+                  selectedColor: AppColors.primary,
+                  checkmarkColor: Colors.white,
+                  backgroundColor: AppColors.background,
+                  side: BorderSide(
+                      color: _typeFilter == entry.$1
+                          ? AppColors.primary
+                          : AppColors.divider),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  visualDensity: VisualDensity.compact,
+                ),
+            ],
+          ),
+          // Clear all
+          if (_hasActiveFilters) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => setState(() {
+                  _cropFilter = '';
+                  _categoryFilter = '';
+                  _typeFilter = 'all';
+                }),
+                icon: const Icon(Icons.clear_all, size: 16),
+                label: const Text('Clear all filters',
+                    style: TextStyle(fontSize: 12)),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.danger,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   void _showSortSheet() {
@@ -111,6 +280,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  bool get _hasActiveFilters =>
+      _cropFilter.isNotEmpty ||
+      _categoryFilter.isNotEmpty ||
+      _typeFilter != 'all';
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -120,7 +294,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Column(
             children: [
-              // Search bar
+              // Search bar + filter toggle
               Row(
                 children: [
                   Expanded(
@@ -150,83 +324,33 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  // Filter toggle button
+                  _FilterToggleButton(
+                    isOpen: _filtersVisible,
+                    hasActive: _hasActiveFilters,
+                    onTap: () =>
+                        setState(() => _filtersVisible = !_filtersVisible),
+                  ),
+                  // Sort button
+                  IconButton(
+                    onPressed: _showSortSheet,
+                    icon: const Icon(Icons.sort),
+                    color: _sortOption != 'newest'
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    tooltip: 'Sort',
+                    visualDensity: VisualDensity.compact,
+                  ),
                 ],
               ),
-              const SizedBox(height: 8),
-              // Filter chips + sort button
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (int i = 0; i < _crops.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: FilterChip(
-                          label: Text(_cropLabels[i],
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: _cropFilter == _crops[i]
-                                      ? Colors.white
-                                      : AppColors.textSecondary)),
-                          selected: _cropFilter == _crops[i],
-                          onSelected: (_) =>
-                              setState(() => _cropFilter = _crops[i]),
-                          selectedColor: AppColors.primary,
-                          checkmarkColor: Colors.white,
-                          backgroundColor: Colors.white,
-                          side: BorderSide(
-                              color: _cropFilter == _crops[i]
-                                  ? AppColors.primary
-                                  : AppColors.divider),
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                    const SizedBox(width: 8),
-                    const SizedBox(
-                      height: 20,
-                      child: VerticalDivider(color: AppColors.divider, width: 1),
-                    ),
-                    const SizedBox(width: 8),
-                    for (final entry in const [
-                      ('all', 'All'),
-                      ('official', 'Official'),
-                      ('community', 'Community'),
-                    ])
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: ChoiceChip(
-                          label: Text(entry.$2,
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: _typeFilter == entry.$1
-                                      ? Colors.white
-                                      : AppColors.textSecondary)),
-                          selected: _typeFilter == entry.$1,
-                          onSelected: (_) =>
-                              setState(() => _typeFilter = entry.$1),
-                          selectedColor: AppColors.accent,
-                          backgroundColor: Colors.white,
-                          side: BorderSide(
-                              color: _typeFilter == entry.$1
-                                  ? AppColors.accent
-                                  : AppColors.divider),
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      onPressed: _showSortSheet,
-                      icon: const Icon(Icons.sort),
-                      color: _sortOption != 'newest'
-                          ? AppColors.primary
-                          : AppColors.textSecondary,
-                      tooltip: 'Sort',
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ],
-                ),
+              // Expandable filter panel
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeInOut,
+                child: _filtersVisible
+                    ? _buildFilterPanel()
+                    : const SizedBox.shrink(),
               ),
               const SizedBox(height: 8),
             ],
@@ -366,6 +490,7 @@ class _HomeScreenState extends State<HomeScreen> {
       crop: _cropFilter,
       type: _typeFilter,
       sort: _sortOption,
+      category: _categoryFilter,
     );
 
     if (posts.isEmpty) {
@@ -538,6 +663,126 @@ class _Tag extends StatelessWidget {
       ),
       child: Text(label,
           style: const TextStyle(fontSize: 10, color: AppColors.primaryDark)),
+    );
+  }
+}
+
+// Filter toggle button (funnel icon with active indicator)
+class _FilterToggleButton extends StatelessWidget {
+  final bool isOpen;
+  final bool hasActive;
+  final VoidCallback onTap;
+
+  const _FilterToggleButton({
+    required this.isOpen,
+    required this.hasActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: (isOpen || hasActive)
+              ? AppColors.primary.withOpacity(0.12)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: (isOpen || hasActive) ? AppColors.primary : AppColors.divider,
+          ),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            Icon(
+              Icons.tune,
+              size: 18,
+              color: (isOpen || hasActive)
+                  ? AppColors.primary
+                  : AppColors.textSecondary,
+            ),
+            if (hasActive)
+              Positioned(
+                right: 4,
+                top: 4,
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: const BoxDecoration(
+                    color: AppColors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Filter section header with expand/collapse and clear button
+class _FilterSectionHeader extends StatelessWidget {
+  final String label;
+  final bool isExpanded;
+  final bool isActive;
+  final VoidCallback onTap;
+  final VoidCallback? onClear;
+
+  const _FilterSectionHeader({
+    required this.label,
+    required this.isExpanded,
+    required this.isActive,
+    required this.onTap,
+    this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Row(
+        children: [
+          Icon(
+            isExpanded ? Icons.expand_less : Icons.expand_more,
+            size: 16,
+            color: isActive ? AppColors.primary : AppColors.textSecondary,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isActive ? AppColors.primary : AppColors.textSecondary,
+            ),
+          ),
+          if (isActive) ...[
+            const SizedBox(width: 6),
+            Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                color: AppColors.primary,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+          const Spacer(),
+          if (onClear != null)
+            GestureDetector(
+              onTap: onClear,
+              child: const Icon(Icons.close,
+                  size: 14, color: AppColors.textSecondary),
+            ),
+        ],
+      ),
     );
   }
 }
