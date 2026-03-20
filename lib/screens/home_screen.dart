@@ -14,28 +14,33 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _searchController = TextEditingController();
-  String _searchQuery = '';
   String _cropFilter = '';
   String _typeFilter = 'all';
   String _sortOption = 'newest';
+
+  final _scrollCtrl = ScrollController();
 
   static const _crops = ['', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
   static const _cropLabels = ['All', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
 
   @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  @override
   void dispose() {
-    _searchController.dispose();
+    _scrollCtrl.removeListener(_onScroll);
+    _scrollCtrl.dispose();
     super.dispose();
   }
 
-  void _onSearch(String value) {
-    setState(() => _searchQuery = value);
-  }
-
-  void _resetSearch() {
-    _searchController.clear();
-    setState(() => _searchQuery = '');
+  void _onScroll() {
+    if (_scrollCtrl.position.pixels >=
+        _scrollCtrl.position.maxScrollExtent - 200) {
+      context.read<AppState>().loadMore();
+    }
   }
 
   void _showSortSheet() {
@@ -97,46 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Column(
             children: [
-              // Search bar + sort button
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: _onSearch,
-                      onSubmitted: _onSearch,
-                      decoration: InputDecoration(
-                        hintText: 'Search pests, crops, diseases…',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: _searchQuery.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: _resetSearch,
-                              )
-                            : null,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(25),
-                            borderSide: BorderSide.none),
-                        filled: true,
-                        fillColor: Colors.white,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 10),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: _showSortSheet,
-                    icon: const Icon(Icons.sort),
-                    color: _sortOption != 'newest'
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
-                    tooltip: 'Sort',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // Crop filter chips + type toggle
+              // Filter chips + sort button
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -198,6 +164,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           visualDensity: VisualDensity.compact,
                         ),
                       ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      onPressed: _showSortSheet,
+                      icon: const Icon(Icons.sort),
+                      color: _sortOption != 'newest'
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      tooltip: 'Sort',
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ],
                 ),
               ),
@@ -205,12 +181,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        // Feed
         Expanded(
           child: Consumer<AppState>(
-            builder: (context, state, _) {
-              return _buildFeed(state);
-            },
+            builder: (context, state, _) => _buildFeed(state),
           ),
         ),
       ],
@@ -225,17 +198,19 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             CircularProgressIndicator(color: AppColors.primary),
             SizedBox(height: 16),
-            Text('Loading from Firestore…',
-                style:
-                    TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+            Text('Loading…',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           ],
         ),
       );
     }
-    if (_searchQuery.isNotEmpty || _cropFilter.isNotEmpty || _typeFilter != 'all') {
-      return _buildSearchResults(state);
-    }
-    final posts = state.filteredPosts('', sort: _sortOption);
+
+    final posts = state.filteredPosts(
+      crop: _cropFilter,
+      type: _typeFilter,
+      sort: _sortOption,
+    );
+
     if (posts.isEmpty) {
       return Center(
         child: Column(
@@ -245,110 +220,52 @@ class _HomeScreenState extends State<HomeScreen> {
                 size: 48, color: AppColors.textSecondary),
             const SizedBox(height: 12),
             const Text('No posts yet',
-                style: TextStyle(
-                    color: AppColors.textSecondary, fontSize: 15)),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 15)),
             const SizedBox(height: 8),
             const Text('Seed demo data from the top-right menu',
-                style: TextStyle(
-                    color: AppColors.textSecondary, fontSize: 12)),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
           ],
         ),
       );
     }
+
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () => state.detectLocation(),
+      onRefresh: state.refresh,
       child: ListView.builder(
-        itemCount: posts.length,
+        controller: _scrollCtrl,
+        // +1 for the bottom indicator row
+        itemCount: posts.length + 1,
         itemBuilder: (context, index) {
-          final post = posts[index];
+          if (index == posts.length) {
+            // bottom indicator
+            if (state.loadingMore) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: CircularProgressIndicator(
+                      color: AppColors.primary, strokeWidth: 2),
+                ),
+              );
+            }
+            if (!state.hasMore) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: Text('— no more posts —',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
+          }
           return PostCard(
-            post: post,
-            onTap: () => _openDetail(context, post),
+            post: posts[index],
+            onTap: () => _openDetail(context, posts[index]),
           );
         },
       ),
-    );
-  }
-
-  Widget _buildSearchResults(AppState state) {
-    final all = state.filteredPosts(
-      _searchQuery,
-      crop: _cropFilter,
-      type: _typeFilter,
-      sort: _sortOption,
-    );
-    final officials = all.where((p) => p.isOfficial).toList();
-    final farmers = all.where((p) => !p.isOfficial).toList();
-
-    if (all.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.search_off, size: 40, color: AppColors.textSecondary),
-            const SizedBox(height: 8),
-            Text('No results for "$_searchQuery"',
-                style: const TextStyle(color: AppColors.textSecondary)),
-            const SizedBox(height: 4),
-            const Text('Browse crops and categories in the Dictionary tab',
-                style: TextStyle(
-                    color: AppColors.textSecondary, fontSize: 12)),
-          ],
-        ),
-      );
-    }
-
-    return ListView(
-      children: [
-        if (officials.isNotEmpty) ...[
-          Container(
-            margin: const EdgeInsets.fromLTRB(8, 12, 8, 0),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppColors.modeActive,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(10)),
-              border: Border.all(
-                  color: AppColors.primary.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.menu_book, color: AppColors.primary, size: 18),
-                const SizedBox(width: 8),
-                Text(
-                  '⭐ ${officials.length} official guide${officials.length == 1 ? '' : 's'} found',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primaryDark,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ...officials.map((p) => _OfficialSearchCard(
-                post: p,
-                onTap: () => _openDetail(context, p),
-              )),
-        ],
-        if (farmers.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              officials.isEmpty ? 'Community posts' : 'Community posts',
-              style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textSecondary),
-            ),
-          ),
-          ...farmers.map((p) => PostCard(
-                post: p,
-                onTap: () => _openDetail(context, p),
-              )),
-        ],
-      ],
     );
   }
 
@@ -356,123 +273,6 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => DetailScreen(post: post)),
-    );
-  }
-}
-
-class _OfficialSearchCard extends StatelessWidget {
-  final Post post;
-  final VoidCallback onTap;
-
-  const _OfficialSearchCard({required this.post, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border(
-            left: const BorderSide(color: AppColors.primary, width: 4),
-            right: BorderSide(color: AppColors.primary.withOpacity(0.2)),
-            bottom: BorderSide(color: AppColors.primary.withOpacity(0.2)),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withOpacity(0.08),
-              blurRadius: 6,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Icon(Icons.star,
-                      color: AppColors.verifiedGold, size: 14),
-                  const SizedBox(width: 4),
-                  const Text('Official Guide',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: AppColors.verifiedGold,
-                          fontWeight: FontWeight.bold)),
-                  const SizedBox(width: 8),
-                  if (post.dictCrop.isNotEmpty) _SmallTag(post.dictCrop),
-                  if (post.dictCategory.isNotEmpty) ...[
-                    const SizedBox(width: 4),
-                    _SmallTag(post.dictCategory),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                post.content.textShort,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 14),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              if (post.dictTags.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 4,
-                  children: post.dictTags
-                      .take(4)
-                      .map((t) => _SmallTag('#$t'))
-                      .toList(),
-                ),
-              ],
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(post.userName,
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.textSecondary)),
-                  const Row(
-                    children: [
-                      Text('Read more',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w600)),
-                      SizedBox(width: 2),
-                      Icon(Icons.arrow_forward_ios,
-                          size: 10, color: AppColors.primary),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SmallTag extends StatelessWidget {
-  final String label;
-  const _SmallTag(this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: AppColors.modeActive,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-      ),
-      child: Text(label,
-          style: const TextStyle(
-              fontSize: 10, color: AppColors.primaryDark)),
     );
   }
 }
