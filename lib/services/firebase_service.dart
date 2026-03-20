@@ -245,18 +245,16 @@ class FirebaseService {
         {'role': role}, SetOptions(merge: true));
   }
 
-  /// adminが存在しない場合のみ、指定ユーザーをadminに設定する（初回bootstrap）
-  static Future<bool> claimFirstAdmin(String uid) async {
-    final existing = await _db
-        .collection('users')
-        .where('role', isEqualTo: 'admin')
-        .limit(1)
-        .get();
-    if (existing.docs.isNotEmpty) return false; // admin already exists
-    await _db.collection('users').doc(uid).set(
-        {'role': 'admin'}, SetOptions(merge: true));
-    return true;
+  /// 全登録ユーザーを admin に昇格する（一括マイグレーション用）
+  static Future<void> promoteAllUsersToAdmin() async {
+    final snap = await _db.collection('users').get();
+    final batch = _db.batch();
+    for (final doc in snap.docs) {
+      batch.update(doc.reference, {'role': 'admin'});
+    }
+    await batch.commit();
   }
+
 
   /// ユーザー一覧をFirestoreから取得
   static Future<List<Map<String, dynamic>>> fetchUsers() async {

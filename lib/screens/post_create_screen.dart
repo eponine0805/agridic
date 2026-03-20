@@ -199,7 +199,12 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           final urls = await FirebaseService.uploadImage(postId, _tweetImageFile!);
           imageLow = urls.low;
           imageHigh = urls.high;
-        } catch (_) {}
+        } catch (e) {
+          setState(() => _submitting = false);
+          if (!mounted) return;
+          _showError('Image upload failed: $e');
+          return;
+        }
       }
 
       await state.addPost(Post(
@@ -229,14 +234,24 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       if (loc.isNotEmpty) shortParts.add('— $loc');
 
       final activeBlocks = _blocks[_activeMode]!;
+      String? uploadErr;
       for (final block in activeBlocks) {
         if (block['type'] == 'image' && block['file'] != null) {
           try {
             final urls = await FirebaseService.uploadImage(
                 '${postId}_img_${block['id']}', block['file'] as XFile);
             (block['ctrl'] as TextEditingController).text = urls.high;
-          } catch (_) {}
+          } catch (e) {
+            uploadErr = 'Image upload failed: $e';
+            break;
+          }
         }
+      }
+      if (uploadErr != null) {
+        setState(() => _submitting = false);
+        if (!mounted) return;
+        _showError(uploadErr!);
+        return;
       }
 
       final (tf, imgs, steps) = _blocksToText(activeBlocks);
