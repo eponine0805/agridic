@@ -134,24 +134,23 @@ class FirebaseService {
   // ─── 画像アップロード ────────────────────────────────────────
 
   /// 画像をアップロードする
-  /// low: サムネイルをbase64 data URLとしてFirestoreに直接格納（Storage不要）
-  /// high: フル解像度をFirebase Storageにアップロード（失敗しても続行）
+  /// low: 超小型サムネイル（150px, q35）をbase64でFirestoreに直接格納 → カード用
+  /// high: Firebase StorageのURL（詳細表示用高解像度）、失敗時は中品質base64（600px, q78）
   static Future<({String low, String high})> uploadImage(
       String postId, XFile file) async {
     final rawBytes = await file.readAsBytes();
 
-    // サムネイル: 640px以下に圧縮してbase64 data URLとして返す
-    // → Firebase Storageのルール設定不要でFirestoreに直接格納できる
+    // カード用サムネイル: 超小型（表示時は小さいのでここまで落として問題ない）
     final thumbBytes = await FlutterImageCompress.compressWithList(
       rawBytes,
-      quality: 72,
-      minWidth: 640,
-      minHeight: 640,
+      quality: 35,
+      minWidth: 150,
+      minHeight: 150,
     );
     final lowDataUrl =
         'data:image/jpeg;base64,${base64Encode(thumbBytes)}';
 
-    // フル解像度: Firebase Storageに試みる（未設定でも投稿はできる）
+    // 詳細表示用: Firebase Storageを試みる
     String highUrl = '';
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -161,7 +160,14 @@ class FirebaseService {
           rawBytes, SettableMetadata(contentType: 'image/jpeg'));
       highUrl = await highRef.getDownloadURL();
     } catch (_) {
-      // Storage未設定時はスキップ（サムネイルは常に利用可能）
+      // Storage未設定時は中品質base64（詳細表示でも十分綺麗）
+      final medBytes = await FlutterImageCompress.compressWithList(
+        rawBytes,
+        quality: 78,
+        minWidth: 800,
+        minHeight: 800,
+      );
+      highUrl = 'data:image/jpeg;base64,${base64Encode(medBytes)}';
     }
 
     return (low: lowDataUrl, high: highUrl);

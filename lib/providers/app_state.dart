@@ -78,14 +78,72 @@ class AppState extends ChangeNotifier {
     var result = visiblePosts.toList();
 
     if (query.isNotEmpty) {
-      final q = query.toLowerCase();
-      result = result
-          .where((p) =>
-              p.content.textShort.toLowerCase().contains(q) ||
-              p.content.textFull.toLowerCase().contains(q) ||
-              p.userName.toLowerCase().contains(q) ||
-              p.dictTags.any((t) => t.toLowerCase().contains(q)))
+      final tokens = query
+          .toLowerCase()
+          .split(RegExp(r'\s+'))
+          .where((t) => t.length >= 2)
           .toList();
+
+      if (tokens.isEmpty) {
+        // 1文字クエリはそのまま単純 contains
+        final q = query.toLowerCase();
+        result = result
+            .where((p) =>
+                p.content.textShort.toLowerCase().contains(q) ||
+                p.content.textFull.toLowerCase().contains(q) ||
+                p.userName.toLowerCase().contains(q) ||
+                p.dictTags.any((t) => t.toLowerCase().contains(q)))
+            .toList();
+      } else {
+        // 複数トークン対応のスコアリング式ファジー検索
+        final scored = <({Post post, double score})>[];
+        for (final p in result) {
+          final searchable = [
+            p.content.textShort,
+            p.content.textFull,
+            p.content.textFullManual,
+            p.userName,
+            p.dictCrop,
+            p.dictCategory,
+            ...p.dictTags,
+          ].join(' ').toLowerCase();
+
+          final words = RegExp(r'\w+')
+              .allMatches(searchable)
+              .map((m) => m.group(0)!)
+              .toList();
+
+          double score = 0;
+          for (final token in tokens) {
+            if (searchable.contains(token)) {
+              score += 2.0; // 完全部分一致
+            } else if (token.length >= 3) {
+              if (words.any((w) => w.startsWith(token))) {
+                score += 1.5; // 単語の前方一致
+              } else if (token.length >= 4 &&
+                  searchable.contains(token.substring(0, token.length - 1))) {
+                score += 0.8; // 末尾1文字省略（タイポ対応）
+              }
+            }
+          }
+          if (score > 0) scored.add((post: p, score: score));
+        }
+        // スコア降順、同スコア内は指定の並び順
+        scored.sort((a, b) {
+          final diff = b.score.compareTo(a.score);
+          if (diff != 0) return diff;
+          switch (sort) {
+            case 'likes':
+              return b.post.likes.compareTo(a.post.likes);
+            case 'distance':
+              return a.post.distanceKm.compareTo(b.post.distanceKm);
+            default:
+              return (b.post.timestamp ?? DateTime(0))
+                  .compareTo(a.post.timestamp ?? DateTime(0));
+          }
+        });
+        result = scored.map((e) => e.post).toList();
+      }
     }
 
     if (crop.isNotEmpty) {

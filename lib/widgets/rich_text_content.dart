@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/app_colors.dart';
@@ -103,8 +104,29 @@ class RichTextContent extends StatelessWidget {
   }
 
   static Widget _buildNetworkImage(String url, {bool highRes = true}) {
+    // base64 data URL（Storage未設定時のフォールバック）
+    if (url.startsWith('data:image')) {
+      try {
+        final base64Data = url.split(',').last;
+        final height = highRes ? null : 120.0;
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.memory(
+              base64Decode(base64Data),
+              width: double.infinity,
+              height: height,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
+        );
+      } catch (_) {
+        return const SizedBox.shrink();
+      }
+    }
     if (!url.startsWith('http')) {
-      // Non-HTTP URLs (demo placeholders etc.) — skip rendering
       return const SizedBox.shrink();
     }
     final height = highRes ? null : 120.0;

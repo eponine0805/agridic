@@ -189,13 +189,39 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   }
 
   Widget _buildSearchResults(AppState state) {
-    final q = _searchQuery;
-    final results = _getDictPosts(state).where((p) {
-      final searchable =
-          '${p.content.textShort} ${p.content.textFull} ${p.dictCrop} ${p.dictCategory} ${p.dictTags.join(' ')}'
-              .toLowerCase();
-      return searchable.contains(q);
-    }).toList();
+    final tokens = _searchQuery
+        .split(RegExp(r'\s+'))
+        .where((t) => t.length >= 2)
+        .toList();
+
+    final allPosts = _getDictPosts(state);
+    List<Post> results;
+
+    if (tokens.isEmpty) {
+      results = allPosts.where((p) {
+        final s = '${p.content.textShort} ${p.content.textFull} ${p.dictCrop} ${p.dictCategory} ${p.dictTags.join(' ')}'.toLowerCase();
+        return s.contains(_searchQuery);
+      }).toList();
+    } else {
+      final scored = <({Post post, double score})>[];
+      for (final p in allPosts) {
+        final s = [p.content.textShort, p.content.textFull, p.dictCrop, p.dictCategory, ...p.dictTags].join(' ').toLowerCase();
+        final words = RegExp(r'\w+').allMatches(s).map((m) => m.group(0)!).toList();
+        double score = 0;
+        for (final token in tokens) {
+          if (s.contains(token)) {
+            score += 2.0;
+          } else if (token.length >= 3 && words.any((w) => w.startsWith(token))) {
+            score += 1.5;
+          } else if (token.length >= 4 && s.contains(token.substring(0, token.length - 1))) {
+            score += 0.8;
+          }
+        }
+        if (score > 0) scored.add((post: p, score: score));
+      }
+      scored.sort((a, b) => b.score.compareTo(a.score));
+      results = scored.map((e) => e.post).toList();
+    }
 
     if (results.isEmpty) {
       return Center(
@@ -491,6 +517,17 @@ class __DictConfigSheetState extends State<_DictConfigSheet> {
   late final List<String> _tags;
   bool _saving = false;
 
+  // 標準候補（辞書が空でも必ず表示される）
+  static const _defaultCrops = [
+    'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee', 'Rice', 'Wheat',
+    'Sorghum', 'Cassava', 'Sweet Potato', 'Banana', 'Mango',
+  ];
+  static const _defaultCategories = [
+    'Growing Guide', 'Pests & Diseases', 'Fertilizer',
+    'Harvest & Storage', 'Weather & Climate', 'Soil Management',
+    'Water & Irrigation', 'Market & Prices',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -509,20 +546,80 @@ class __DictConfigSheetState extends State<_DictConfigSheet> {
     super.dispose();
   }
 
-  // Existing crops and categories from all dict posts
-  List<String> _existingCrops() => widget.state.posts
-      .where((p) => p.isOfficial && p.dictCrop.isNotEmpty)
-      .map((p) => p.dictCrop)
-      .toSet()
-      .toList()
-    ..sort();
+  // 既存 + デフォルト候補（重複除去・ソート）
+  List<String> _allCrops() {
+    final fromPosts = widget.state.posts
+        .where((p) => p.isOfficial && p.dictCrop.isNotEmpty)
+        .map((p) => p.dictCrop);
+    return {..._defaultCrops, ...fromPosts}.toList()..sort();
+  }
 
-  List<String> _existingCategories() => widget.state.posts
-      .where((p) => p.isOfficial && p.dictCategory.isNotEmpty)
-      .map((p) => p.dictCategory)
-      .toSet()
-      .toList()
-    ..sort();
+  List<String> _allCategories() {
+    final fromPosts = widget.state.posts
+        .where((p) => p.isOfficial && p.dictCategory.isNotEmpty)
+        .map((p) => p.dictCategory);
+    return {..._defaultCategories, ...fromPosts}.toList()..sort();
+  }
+
+  Widget _buildAutocomplete({
+    required TextEditingController controller,
+    required List<String> options,
+    required String hint,
+  }) {
+    return Autocomplete<String>(
+      initialValue: TextEditingValue(text: controller.text),
+      optionsBuilder: (value) {
+        final q = value.text.toLowerCase();
+        if (q.isEmpty) return options;
+        return options.where((o) => o.toLowerCase().contains(q));
+      },
+      onSelected: (s) => setState(() => controller.text = s),
+      fieldViewBuilder: (ctx, fieldCtrl, focusNode, _) {
+        // fieldCtrl の変化を controller に反映
+        fieldCtrl.addListener(() => controller.text = fieldCtrl.text);
+        return TextField(
+          controller: fieldCtrl,
+          focusNode: focusNode,
+          decoration: InputDecoration(
+            hintText: hint,
+            suffixIcon: const Icon(Icons.arrow_drop_down,
+                color: AppColors.textSecondary, size: 20),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            isDense: true,
+          ),
+        );
+      },
+      optionsViewBuilder: (ctx, onSelected, opts) => Align(
+        alignment: Alignment.topLeft,
+        child: Material(
+          elevation: 4,
+          borderRadius: BorderRadius.circular(8),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 180),
+            child: ListView(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              children: opts
+                  .map((o) => InkWell(
+                        onTap: () => onSelected(o),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          child: Text(o,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textPrimary)),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   void _addTag() {
     final tag = _tagCtrl.text.trim().toLowerCase();
@@ -557,8 +654,8 @@ class __DictConfigSheetState extends State<_DictConfigSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final existingCrops = _existingCrops();
-    final existingCats = _existingCategories();
+    final allCrops = _allCrops();
+    final allCats = _allCategories();
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
@@ -611,56 +708,20 @@ class __DictConfigSheetState extends State<_DictConfigSheet> {
                 // Crop
                 const Text('Crop', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
-                TextField(
+                _buildAutocomplete(
                   controller: _cropCtrl,
-                  decoration: InputDecoration(
-                    hintText: 'e.g. Maize, Tomato, Rice…',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    isDense: true,
-                  ),
+                  options: allCrops,
+                  hint: 'e.g. Maize, Tomato, Rice…',
                 ),
-                if (existingCrops.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    children: existingCrops.map((c) => ActionChip(
-                      label: Text(c, style: const TextStyle(fontSize: 11)),
-                      onPressed: () => setState(() => _cropCtrl.text = c),
-                      backgroundColor: AppColors.modeActive,
-                      side: BorderSide(color: AppColors.primary.withOpacity(0.3)),
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    )).toList(),
-                  ),
-                ],
                 const SizedBox(height: 12),
                 // Category
                 const Text('Category', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
-                TextField(
+                _buildAutocomplete(
                   controller: _catCtrl,
-                  decoration: InputDecoration(
-                    hintText: 'e.g. Growing Guide, Pests & Diseases…',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    isDense: true,
-                  ),
+                  options: allCats,
+                  hint: 'e.g. Growing Guide, Pests & Diseases…',
                 ),
-                if (existingCats.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    children: existingCats.map((c) => ActionChip(
-                      label: Text(c, style: const TextStyle(fontSize: 11)),
-                      onPressed: () => setState(() => _catCtrl.text = c),
-                      backgroundColor: AppColors.modeActive,
-                      side: BorderSide(color: AppColors.primary.withOpacity(0.3)),
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    )).toList(),
-                  ),
-                ],
                 const SizedBox(height: 12),
                 // Tags
                 const Text('Keywords / Tags', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
