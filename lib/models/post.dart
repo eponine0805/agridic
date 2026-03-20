@@ -95,6 +95,39 @@ class Post {
     this.inDictionary = false,
   });
 
+  /// オフラインキューのJSONから復元する
+  factory Post.fromMap(Map<String, dynamic> m) {
+    final locMap = m['location'] as Map<String, dynamic>?;
+    final ts = m['timestamp'];
+    DateTime? timestamp;
+    if (ts is String) timestamp = DateTime.tryParse(ts);
+    return Post(
+      postId: (m['postId'] ?? m['id'] ?? '') as String,
+      userId: (m['userId'] ?? '') as String,
+      isOfficial: (m['isOfficial'] ?? false) as bool,
+      userRole: (m['userRole'] ?? 'farmer') as String,
+      userName: (m['userName'] ?? '') as String,
+      content: PostContent.fromMap(
+          (m['content'] as Map<String, dynamic>?) ?? {}),
+      location: locMap != null
+          ? ((locMap['lat'] as num).toDouble(),
+              (locMap['lng'] as num).toDouble())
+          : null,
+      timestamp: timestamp,
+      isVerified: (m['isVerified'] ?? false) as bool,
+      reports: (m['reports'] ?? 0) as int,
+      isHidden: (m['isHidden'] ?? false) as bool,
+      likes: (m['likes'] ?? 0) as int,
+      likedBy: List<String>.from(m['likedBy'] ?? []),
+      distanceKm: ((m['distanceKm'] as num?) ?? 0).toDouble(),
+      viewMode: (m['viewMode'] ?? 'text') as String,
+      dictCrop: (m['dictCrop'] ?? '') as String,
+      dictCategory: (m['dictCategory'] ?? '') as String,
+      dictTags: List<String>.from(m['dictTags'] ?? []),
+      inDictionary: (m['inDictionary'] ?? false) as bool,
+    );
+  }
+
   factory Post.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final m = doc.data()!;
     final locMap = m['location'] as Map<String, dynamic>?;
@@ -137,6 +170,30 @@ class Post {
         'timestamp': timestamp != null
             ? Timestamp.fromDate(timestamp!)
             : FieldValue.serverTimestamp(),
+        'isVerified': isVerified,
+        'reports': reports,
+        'isHidden': isHidden,
+        'likes': likes,
+        'likedBy': likedBy,
+        'distanceKm': distanceKm,
+        'viewMode': viewMode,
+        'dictCrop': dictCrop,
+        'dictCategory': dictCategory,
+        'dictTags': dictTags,
+        'inDictionary': inDictionary,
+      };
+
+  /// JSON シリアライズ用（オフラインキュー保存）
+  Map<String, dynamic> toJson() => {
+        'postId': postId,
+        'userId': userId,
+        'isOfficial': isOfficial,
+        'userRole': userRole,
+        'userName': userName,
+        'content': content.toMap(),
+        if (location != null)
+          'location': {'lat': location!.$1, 'lng': location!.$2},
+        'timestamp': timestamp?.toIso8601String(),
         'isVerified': isVerified,
         'reports': reports,
         'isHidden': isHidden,

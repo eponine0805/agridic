@@ -4,7 +4,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
-import '../models/comment.dart';
+import '../models/app_notification.dart';
 
 class FirebaseService {
   static final _db = FirebaseFirestore.instance;
@@ -97,26 +97,6 @@ class FirebaseService {
         'likes': FieldValue.increment(1),
       });
     }
-  }
-
-  // ─── コメント ──────────────────────────────────────────────
-
-  static Stream<List<Comment>> streamComments(String postId) {
-    return _db
-        .collection(_col)
-        .doc(postId)
-        .collection('comments')
-        .orderBy('timestamp', descending: false)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) => Comment.fromFirestore(d)).toList());
-  }
-
-  static Future<void> addComment(String postId, Comment comment) async {
-    await _db
-        .collection(_col)
-        .doc(postId)
-        .collection('comments')
-        .add(comment.toFirestore());
   }
 
   // ─── 通報 ──────────────────────────────────────────────────
@@ -266,9 +246,136 @@ class FirebaseService {
     );
   }
 
+  /// 特定ユーザーの投稿をページネーションで取得
+  static Future<({List<Post> posts, DocumentSnapshot? lastDoc})>
+      fetchPostsByUser({
+    required String userId,
+    DocumentSnapshot? after,
+    int limit = 20,
+  }) async {
+    var query = _db
+        .collection(_col)
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true)
+        .limit(limit);
+    if (after != null) query = query.startAfterDocument(after);
+    final snap = await query.get();
+    final posts = snap.docs
+        .map((d) => Post.fromFirestore(d))
+        .where((p) => !p.isHidden)
+        .toList();
+    return (
+      posts: posts,
+      lastDoc: snap.docs.isNotEmpty ? snap.docs.last : null,
+    );
+  }
+
   /// 投稿を削除（投稿者本人またはadminのみ）
   static Future<void> deletePost(String postId) async {
     await _db.collection(_col).doc(postId).delete();
+  }
+
+  // ─── 通知 ──────────────────────────────────────────────────────
+
+  /// 特定ユーザーへの通知を追加
+  static Future<void> addNotification({
+    required String userId,
+    required String type,
+    required String title,
+    required String body,
+    String? postId,
+  }) async {
+    if (userId.isEmpty) return;
+    await _db
+        .collection('notifications')
+        .doc(userId)
+        .collection('items')
+        .add({
+      'type': type,
+      'title': title,
+      'body': body,
+      if (postId != null) 'postId': postId,
+      'timestamp': FieldValue.serverTimestamp(),
+      'isRead': false,
+    });
+  }
+
+  /// ユーザーの通知一覧を取得（最新50件）
+  static Future<List<AppNotification>> fetchNotifications(
+      String userId) async {
+    final snap = await _db
+        .collection('notifications')
+        .doc(userId)
+        .collection('items')
+        .orderBy('timestamp', descending: true)
+        .limit(50)
+        .get();
+    return snap.docs
+        .map((d) => AppNotification.fromFirestore(d))
+        .toList();
+  }
+
+  /// 未読通知数をストリームで取得
+  static Stream<int> streamUnreadCount(String userId) {
+    return _db
+        .collection('notifications')
+        .doc(userId)
+        .collection('items')
+        .where('isRead', isEqualTo: false)
+        .snapshots()
+        .map((snap) => snap.size);
+  }
+
+  /// 通知を既読にする
+  static Future<void> markNotificationsRead(
+      String userId, List<String> ids) async {
+    final batch = _db.batch();
+    for (final id in ids) {
+      batch.update(
+        _db
+            .collection('notifications')
+            .doc(userId)
+            .collection('items')
+            .doc(id),
+        {'isRead': true},
+      );
+    }
+    await batch.commit();
+  }
+
+  /// 管理者ブロードキャストを送信（broadcastsコレクションに保存）
+  static Future<void> sendBroadcast({
+    required String title,
+    required String body,
+    required String sentBy,
+  }) async {
+    await _db.collection('broadcasts').add({
+      'title': title,
+      'body': body,
+      'sentBy': sentBy,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// 管理者ブロードキャスト一覧を取得（最新20件）
+  static Future<List<AppNotification>> fetchBroadcasts() async {
+    final snap = await _db
+        .collection('broadcasts')
+        .orderBy('timestamp', descending: true)
+        .limit(20)
+        .get();
+    return snap.docs
+        .map((d) => AppNotification.fromMap(d.id, d.data()))
+        .toList();
+  }
+
+  /// ブロードキャストの未読数をストリームで取得（最新ブロードキャストのタイムスタンプと比較）
+  static Stream<int> streamUnreadBroadcastCount(DateTime lastRead) {
+    return _db
+        .collection('broadcasts')
+        .where('timestamp', isGreaterThan: Timestamp.fromDate(lastRead))
+        .snapshots()
+        .map((snap) => snap.size);
   }
 
   // ─── ユーザー管理 ──────────────────────────────────────────────

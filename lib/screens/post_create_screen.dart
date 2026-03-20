@@ -194,7 +194,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       setState(() => _submitting = true);
 
       String imageLow = '', imageHigh = '';
-      if (_tweetImageFile != null) {
+      if (_tweetImageFile != null && state.isOnline) {
         try {
           final urls = await FirebaseService.uploadImage(postId, _tweetImageFile!);
           imageLow = urls.low;
@@ -233,20 +233,22 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       if (crop.isNotEmpty) shortParts.add('[$crop]');
       if (loc.isNotEmpty) shortParts.add('— $loc');
 
-      // 全モードの画像をアップロード
-      for (final mode in ['text', 'manual', 'visual']) {
-        for (final block in _blocks[mode]!) {
-          if (block['type'] == 'image' && block['file'] != null) {
-            try {
-              final urls = await FirebaseService.uploadImage(
-                  '${postId}_${mode}_img_${block['id']}', block['file'] as XFile);
-              (block['ctrl'] as TextEditingController).text =
-                  urls.high.isNotEmpty ? urls.high : urls.low;
-            } catch (e) {
-              setState(() => _submitting = false);
-              if (!mounted) return;
-              _showError('Image processing failed: $e');
-              return;
+      // 全モードの画像をアップロード（オンライン時のみ）
+      if (state.isOnline) {
+        for (final mode in ['text', 'manual', 'visual']) {
+          for (final block in _blocks[mode]!) {
+            if (block['type'] == 'image' && block['file'] != null) {
+              try {
+                final urls = await FirebaseService.uploadImage(
+                    '${postId}_${mode}_img_${block['id']}', block['file'] as XFile);
+                (block['ctrl'] as TextEditingController).text =
+                    urls.high.isNotEmpty ? urls.high : urls.low;
+              } catch (e) {
+                setState(() => _submitting = false);
+                if (!mounted) return;
+                _showError('Image processing failed: $e');
+                return;
+              }
             }
           }
         }
@@ -300,15 +302,25 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     setState(() => _submitting = false);
     if (!mounted) return;
     Navigator.pop(context);
+    final isOnline = state.isOnline;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Row(children: [
-        const Icon(Icons.check_circle, color: Colors.white, size: 18),
+        Icon(
+          isOnline ? Icons.check_circle : Icons.cloud_queue,
+          color: Colors.white,
+          size: 18,
+        ),
         const SizedBox(width: 8),
-        Text(_postType == 'tweet' ? 'Post shared!' : 'Report published!',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+        Text(
+          isOnline
+              ? (_postType == 'tweet' ? 'Post shared!' : 'Report published!')
+              : 'Saved offline — will post when connected',
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.w500),
+        ),
       ]),
-      backgroundColor: AppColors.primary,
-      duration: const Duration(seconds: 2),
+      backgroundColor: isOnline ? AppColors.primary : AppColors.accent,
+      duration: const Duration(seconds: 3),
     ));
   }
 

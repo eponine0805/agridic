@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/post.dart';
 import '../services/firebase_service.dart';
+import '../services/offline_queue_service.dart';
 
 class AppState extends ChangeNotifier {
   (double, double) currentLocation = (-0.95, 36.87);
@@ -16,12 +18,48 @@ class AppState extends ChangeNotifier {
   bool _hasMore = true;
   DocumentSnapshot? _lastDoc;
 
+  bool isOnline = true;
+  int pendingQueueCount = 0;
+
   bool get loadingMore => _loadingMore;
   bool get hasMore => _hasMore;
 
   AppState() {
     detectLocation();
     _loadInitial();
+    _initConnectivity();
+  }
+
+  Future<void> _initConnectivity() async {
+    final result = await Connectivity().checkConnectivity();
+    isOnline = !result.contains(ConnectivityResult.none);
+    pendingQueueCount = await OfflineQueueService.count();
+    notifyListeners();
+
+    Connectivity().onConnectivityChanged.listen((results) async {
+      final wasOffline = !isOnline;
+      isOnline = !results.contains(ConnectivityResult.none);
+      pendingQueueCount = await OfflineQueueService.count();
+      notifyListeners();
+      if (wasOffline && isOnline) {
+        await _processOfflineQueue();
+      }
+    });
+  }
+
+  Future<void> _processOfflineQueue() async {
+    final items = await OfflineQueueService.getAll();
+    if (items.isEmpty) return;
+    for (final data in items) {
+      try {
+        final post = Post.fromMap(data);
+        await FirebaseService.savePost(post);
+      } catch (_) {}
+    }
+    await OfflineQueueService.clear();
+    pendingQueueCount = 0;
+    // 投稿反映のためリフレッシュ
+    await _loadInitial();
   }
 
   List<Post> get posts => _posts;
@@ -150,14 +188,29 @@ class AppState extends ChangeNotifier {
 
   // ─── 操作 ───────────────────────────────────────────────────────
 
-  Future<void> toggleLike(String postId, String userId) async {
-    await FirebaseService.toggleLike(postId, userId);
-    // ローカルで楽観的更新（再取得不要）
+  Future<void> toggleLike(
+      String postId, String userId, String likerName) async {
     final idx = _posts.indexWhere((p) => p.postId == postId);
+    final post = idx >= 0 ? _posts[idx] : null;
+    final alreadyLiked = post?.likedBy.contains(userId) ?? false;
+
+    await FirebaseService.toggleLike(postId, userId);
+
+    // いいね追加時に通知を作成（自分の投稿でない場合のみ）
+    if (!alreadyLiked && post != null && post.userId != userId) {
+      await FirebaseService.addNotification(
+        userId: post.userId,
+        type: 'like',
+        title: '$likerName がいいねしました',
+        body: post.content.textShort,
+        postId: postId,
+      );
+    }
+
+    // ローカルで楽観的更新（再取得不要）
     if (idx >= 0) {
       final p = _posts[idx];
-      final already = p.likedBy.contains(userId);
-      if (already) {
+      if (alreadyLiked) {
         p.likes--;
         p.likedBy = p.likedBy.where((id) => id != userId).toList();
       } else {
@@ -168,7 +221,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> addPost(Post post) async {
+  /// 投稿を追加（オフライン時はキューに保存）
+  Future<bool> addPost(Post post) async {
+    if (!isOnline) {
+      await OfflineQueueService.enqueue(post);
+      pendingQueueCount = await OfflineQueueService.count();
+      notifyListeners();
+      return false; // オフラインキューに保存
+    }
     await FirebaseService.savePost(post);
     // 先頭ページを再取得して新投稿を即座に反映
     final result = await FirebaseService.fetchPostsPage();
@@ -176,6 +236,7 @@ class AppState extends ChangeNotifier {
     _lastDoc = result.lastDoc;
     _hasMore = result.posts.length >= 20;
     notifyListeners();
+    return true; // オンライン投稿成功
   }
 
   Future<bool> seedDemoData() async {
