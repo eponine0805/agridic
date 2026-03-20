@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
+import '../services/dict_local_service.dart';
 import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
 import 'detail_screen.dart';
@@ -17,6 +18,10 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   final List<String> _path = [];
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+
+  List<Post> _cachedPosts = [];
+  DateTime? _cacheDate;
+  bool _usingCache = false;
 
   static const Map<String, String> _cropIcons = {
     'Maize': '🌽',
@@ -36,13 +41,34 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   };
 
   @override
+  void initState() {
+    super.initState();
+    _loadCache();
+  }
+
+  Future<void> _loadCache() async {
+    final result = await DictLocalService.load();
+    if (result.posts.isNotEmpty && mounted) {
+      setState(() {
+        _cachedPosts = result.posts;
+        _cacheDate = result.savedAt;
+        _usingCache = true;
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  List<Post> _getDictPosts(AppState state) =>
-      state.posts.where((p) => p.isOfficial && p.inDictionary).toList();
+  List<Post> _getDictPosts(AppState state) {
+    // Prefer local cache (downloaded, works offline)
+    if (_usingCache && _cachedPosts.isNotEmpty) return _cachedPosts;
+    // Fall back to live Firestore stream
+    return state.posts.where((p) => p.isOfficial && p.inDictionary).toList();
+  }
 
   Map<String, int> _getCrops(AppState state) {
     final map = <String, int>{};
@@ -91,6 +117,13 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     if (_path.isEmpty) return 'Official Guides';
     if (_path.length == 1) return _path[0];
     return _path[1];
+  }
+
+  String _formatCacheAge(DateTime savedAt) {
+    final diff = DateTime.now().difference(savedAt);
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 
   @override
@@ -142,6 +175,23 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                   ),
                 ),
               ),
+              if (_usingCache && _cacheDate != null)
+                Container(
+                  color: const Color(0xFFE8F5E9),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.offline_pin, size: 14, color: AppColors.primary),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Offline — saved ${_formatCacheAge(_cacheDate!)}',
+                          style: const TextStyle(fontSize: 11, color: AppColors.primary),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               Container(
                 color: AppColors.background,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

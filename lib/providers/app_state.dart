@@ -1,11 +1,10 @@
-import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/post.dart';
 import '../services/firebase_service.dart';
 
 class AppState extends ChangeNotifier {
-  String searchQuery = '';
   (double, double) currentLocation = (-0.95, 36.87);
   bool locationReady = false;
   bool isDetectingLocation = false;
@@ -13,28 +12,16 @@ class AppState extends ChangeNotifier {
   List<Post> _posts = [];
   bool isLoading = true;
   bool isSeeding = false;
+  bool _loadingMore = false;
+  bool _hasMore = true;
+  DocumentSnapshot? _lastDoc;
 
-  StreamSubscription<List<Post>>? _sub;
+  bool get loadingMore => _loadingMore;
+  bool get hasMore => _hasMore;
 
   AppState() {
     detectLocation();
-    _sub = FirebaseService.streamPosts().listen(
-      (posts) {
-        _posts = posts;
-        isLoading = false;
-        notifyListeners();
-      },
-      onError: (_) {
-        isLoading = false;
-        notifyListeners();
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _sub?.cancel();
-    super.dispose();
+    _loadInitial();
   }
 
   List<Post> get posts => _posts;
@@ -43,6 +30,59 @@ class AppState extends ChangeNotifier {
 
   List<Post> get officialPosts =>
       visiblePosts.where((p) => p.isOfficial && p.inDictionary).toList();
+
+  // ─── 読み込み ──────────────────────────────────────────────────
+
+  Future<void> _loadInitial() async {
+    isLoading = true;
+    notifyListeners();
+    try {
+      final result = await FirebaseService.fetchPostsPage();
+      _posts = result.posts;
+      _lastDoc = result.lastDoc;
+      _hasMore = result.posts.length >= 20;
+    } catch (_) {}
+    isLoading = false;
+    notifyListeners();
+  }
+
+  /// 上に引っ張って更新 — 直近の投稿より新しいものだけ取得して先頭に追加
+  /// 新着3件なら3 reads、新着なしなら0 reads
+  Future<void> refresh() async {
+    try {
+      final since = _posts.isNotEmpty ? _posts.first.timestamp : null;
+      if (since == null) {
+        await _loadInitial();
+        return;
+      }
+      final newPosts = await FirebaseService.fetchPostsSince(since);
+      if (newPosts.isNotEmpty) {
+        _posts = [...newPosts, ..._posts];
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  /// 下スクロールで追加読み込み
+  Future<void> loadMore() async {
+    if (_loadingMore || !_hasMore || _lastDoc == null) return;
+    _loadingMore = true;
+    notifyListeners();
+    try {
+      final result = await FirebaseService.fetchPostsPage(after: _lastDoc);
+      if (result.posts.isNotEmpty) {
+        _posts = [..._posts, ...result.posts];
+        _lastDoc = result.lastDoc ?? _lastDoc;
+        _hasMore = result.posts.length >= 20;
+      } else {
+        _hasMore = false;
+      }
+    } catch (_) {}
+    _loadingMore = false;
+    notifyListeners();
+  }
+
+  // ─── 位置情報 ────────────────────────────────────────────────────
 
   Future<void> detectLocation() async {
     isDetectingLocation = true;
@@ -69,82 +109,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<Post> filteredPosts(
-    String query, {
+  // ─── フィルタリング ───────────────────────────────────────────────
+
+  List<Post> filteredPosts({
     String crop = '',
     String type = 'all',
     String sort = 'newest',
   }) {
     var result = visiblePosts.toList();
-
-    if (query.isNotEmpty) {
-      final tokens = query
-          .toLowerCase()
-          .split(RegExp(r'\s+'))
-          .where((t) => t.length >= 2)
-          .toList();
-
-      if (tokens.isEmpty) {
-        // 1文字クエリはそのまま単純 contains
-        final q = query.toLowerCase();
-        result = result
-            .where((p) =>
-                p.content.textShort.toLowerCase().contains(q) ||
-                p.content.textFull.toLowerCase().contains(q) ||
-                p.userName.toLowerCase().contains(q) ||
-                p.dictTags.any((t) => t.toLowerCase().contains(q)))
-            .toList();
-      } else {
-        // 複数トークン対応のスコアリング式ファジー検索
-        final scored = <({Post post, double score})>[];
-        for (final p in result) {
-          final searchable = [
-            p.content.textShort,
-            p.content.textFull,
-            p.content.textFullManual,
-            p.userName,
-            p.dictCrop,
-            p.dictCategory,
-            ...p.dictTags,
-          ].join(' ').toLowerCase();
-
-          final words = RegExp(r'\w+')
-              .allMatches(searchable)
-              .map((m) => m.group(0)!)
-              .toList();
-
-          double score = 0;
-          for (final token in tokens) {
-            if (searchable.contains(token)) {
-              score += 2.0; // 完全部分一致
-            } else if (token.length >= 3) {
-              if (words.any((w) => w.startsWith(token))) {
-                score += 1.5; // 単語の前方一致
-              } else if (token.length >= 4 &&
-                  searchable.contains(token.substring(0, token.length - 1))) {
-                score += 0.8; // 末尾1文字省略（タイポ対応）
-              }
-            }
-          }
-          if (score > 0) scored.add((post: p, score: score));
-        }
-        // スコア降順、同スコア内は指定の並び順
-        scored.sort((a, b) {
-          final diff = b.score.compareTo(a.score);
-          if (diff != 0) return diff;
-          switch (sort) {
-            case 'likes':
-              return b.post.likes.compareTo(a.post.likes);
-            case 'distance':
-              return a.post.distanceKm.compareTo(b.post.distanceKm);
-            default:
-              return (b.post.timestamp ?? DateTime(0))
-                  .compareTo(a.post.timestamp ?? DateTime(0));
-          }
-        });
-        result = scored.map((e) => e.post).toList();
-      }
-    }
 
     if (crop.isNotEmpty) {
       result = result.where((p) => p.dictCrop == crop).toList();
@@ -176,22 +148,46 @@ class AppState extends ChangeNotifier {
     return result;
   }
 
+  // ─── 操作 ───────────────────────────────────────────────────────
+
   Future<void> toggleLike(String postId, String userId) async {
     await FirebaseService.toggleLike(postId, userId);
-    // ストリームが自動で更新
+    // ローカルで楽観的更新（再取得不要）
+    final idx = _posts.indexWhere((p) => p.postId == postId);
+    if (idx >= 0) {
+      final p = _posts[idx];
+      final already = p.likedBy.contains(userId);
+      if (already) {
+        p.likes--;
+        p.likedBy = p.likedBy.where((id) => id != userId).toList();
+      } else {
+        p.likes++;
+        p.likedBy = [...p.likedBy, userId];
+      }
+      notifyListeners();
+    }
   }
 
   Future<void> addPost(Post post) async {
     await FirebaseService.savePost(post);
-    // Firestoreストリームが自動で_postsを更新する
+    // 先頭ページを再取得して新投稿を即座に反映
+    final result = await FirebaseService.fetchPostsPage();
+    _posts = result.posts;
+    _lastDoc = result.lastDoc;
+    _hasMore = result.posts.length >= 20;
+    notifyListeners();
   }
 
-  /// デモデータをFirestoreに投入する
-  /// 既にデータがある場合は何もしない
   Future<bool> seedDemoData() async {
     isSeeding = true;
     notifyListeners();
     final seeded = await FirebaseService.seedDemoData();
+    if (seeded) {
+      final result = await FirebaseService.fetchPostsPage();
+      _posts = result.posts;
+      _lastDoc = result.lastDoc;
+      _hasMore = result.posts.length >= 20;
+    }
     isSeeding = false;
     notifyListeners();
     return seeded;

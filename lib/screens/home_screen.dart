@@ -2,40 +2,63 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
+import '../services/dict_local_service.dart';
 import '../utils/app_colors.dart';
 import '../widgets/post_card.dart';
 import 'detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.scrollController});
+  final ScrollController? scrollController;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _searchController = TextEditingController();
-  String _searchQuery = '';
   String _cropFilter = '';
   String _typeFilter = 'all';
   String _sortOption = 'newest';
+
+  final _ownScrollCtrl = ScrollController();
+  ScrollController get _scrollCtrl =>
+      widget.scrollController ?? _ownScrollCtrl;
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  // ローカルキャッシュ（辞書ダウンロード済みデータ）
+  List<Post> _dictCache = [];
 
   static const _crops = ['', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
   static const _cropLabels = ['All', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
 
   @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_onScroll);
+    _loadDictCache();
+  }
+
+  Future<void> _loadDictCache() async {
+    final result = await DictLocalService.load();
+    if (result.posts.isNotEmpty && mounted) {
+      setState(() => _dictCache = result.posts);
+    }
+  }
+
+  @override
   void dispose() {
-    _searchController.dispose();
+    _scrollCtrl.removeListener(_onScroll);
+    _ownScrollCtrl.dispose(); // 外部コントローラは dispose しない
+    _searchCtrl.dispose();
     super.dispose();
   }
 
-  void _onSearch(String value) {
-    setState(() => _searchQuery = value);
-  }
-
-  void _resetSearch() {
-    _searchController.clear();
-    setState(() => _searchQuery = '');
+  void _onScroll() {
+    if (_scrollCtrl.position.pixels >=
+        _scrollCtrl.position.maxScrollExtent - 200) {
+      context.read<AppState>().loadMore();
+    }
   }
 
   void _showSortSheet() {
@@ -97,21 +120,24 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Column(
             children: [
-              // Search bar + sort button
+              // Search bar
               Row(
                 children: [
                   Expanded(
                     child: TextField(
-                      controller: _searchController,
-                      onChanged: _onSearch,
-                      onSubmitted: _onSearch,
+                      controller: _searchCtrl,
+                      onChanged: (v) =>
+                          setState(() => _searchQuery = v.trim().toLowerCase()),
                       decoration: InputDecoration(
-                        hintText: 'Search pests, crops, diseases…',
+                        hintText: 'Search official guides…',
                         prefixIcon: const Icon(Icons.search),
                         suffixIcon: _searchQuery.isNotEmpty
                             ? IconButton(
                                 icon: const Icon(Icons.clear),
-                                onPressed: _resetSearch,
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() => _searchQuery = '');
+                                },
                               )
                             : null,
                         border: OutlineInputBorder(
@@ -124,19 +150,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: _showSortSheet,
-                    icon: const Icon(Icons.sort),
-                    color: _sortOption != 'newest'
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
-                    tooltip: 'Sort',
-                  ),
                 ],
               ),
               const SizedBox(height: 8),
-              // Crop filter chips + type toggle
+              // Filter chips + sort button
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -198,6 +215,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           visualDensity: VisualDensity.compact,
                         ),
                       ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      onPressed: _showSortSheet,
+                      icon: const Icon(Icons.sort),
+                      color: _sortOption != 'newest'
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                      tooltip: 'Sort',
+                      visualDensity: VisualDensity.compact,
+                    ),
                   ],
                 ),
               ),
@@ -205,14 +232,117 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        // Feed
         Expanded(
-          child: Consumer<AppState>(
-            builder: (context, state, _) {
-              return _buildFeed(state);
-            },
+          child: _searchQuery.isNotEmpty
+              ? _buildDictResults()
+              : Consumer<AppState>(
+                  builder: (context, state, _) => _buildFeed(state),
+                ),
+        ),
+      ],
+    );
+  }
+
+  /// ローカルキャッシュに対してファジー検索（Firestoreへの読み取り0回）
+  Widget _buildDictResults() {
+    if (_dictCache.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.download_outlined,
+                size: 40, color: AppColors.textSecondary),
+            const SizedBox(height: 8),
+            const Text('Dictionary not downloaded yet',
+                style: TextStyle(color: AppColors.textSecondary)),
+            const SizedBox(height: 4),
+            const Text('Go to the Dictionary tab to download guides for offline use',
+                style: TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary),
+                textAlign: TextAlign.center),
+          ],
+        ),
+      );
+    }
+
+    final tokens = _searchQuery
+        .split(RegExp(r'\s+'))
+        .where((t) => t.length >= 2)
+        .toList();
+
+    List<Post> results;
+    if (tokens.isEmpty) {
+      results = _dictCache.where((p) {
+        final s = '${p.content.textShort} ${p.content.textFull} '
+            '${p.dictCrop} ${p.dictCategory} ${p.dictTags.join(' ')}'
+            .toLowerCase();
+        return s.contains(_searchQuery);
+      }).toList();
+    } else {
+      final scored = <({Post post, double score})>[];
+      for (final p in _dictCache) {
+        final s = [
+          p.content.textShort,
+          p.content.textFull,
+          p.dictCrop,
+          p.dictCategory,
+          ...p.dictTags,
+        ].join(' ').toLowerCase();
+        final words =
+            RegExp(r'\w+').allMatches(s).map((m) => m.group(0)!).toList();
+        double score = 0;
+        for (final token in tokens) {
+          if (s.contains(token)) {
+            score += 2.0;
+          } else if (token.length >= 3 &&
+              words.any((w) => w.startsWith(token))) {
+            score += 1.5;
+          } else if (token.length >= 4 &&
+              s.contains(token.substring(0, token.length - 1))) {
+            score += 0.8;
+          }
+        }
+        if (score > 0) scored.add((post: p, score: score));
+      }
+      scored.sort((a, b) => b.score.compareTo(a.score));
+      results = scored.map((e) => e.post).toList();
+    }
+
+    if (results.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.search_off,
+                size: 40, color: AppColors.textSecondary),
+            const SizedBox(height: 8),
+            Text('No guides found for "$_searchQuery"',
+                style: const TextStyle(color: AppColors.textSecondary)),
+            const SizedBox(height: 4),
+            const Text('Try a different keyword',
+                style:
+                    TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            '⭐ ${results.length} official guide${results.length == 1 ? '' : 's'} found',
+            style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.primary,
+                fontWeight: FontWeight.w600),
           ),
         ),
+        ...results.map((p) => _DictResultTile(
+              post: p,
+              onTap: () => _openDetail(context, p),
+            )),
       ],
     );
   }
@@ -225,17 +355,19 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             CircularProgressIndicator(color: AppColors.primary),
             SizedBox(height: 16),
-            Text('Loading from Firestore…',
-                style:
-                    TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+            Text('Loading…',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           ],
         ),
       );
     }
-    if (_searchQuery.isNotEmpty || _cropFilter.isNotEmpty || _typeFilter != 'all') {
-      return _buildSearchResults(state);
-    }
-    final posts = state.filteredPosts('', sort: _sortOption);
+
+    final posts = state.filteredPosts(
+      crop: _cropFilter,
+      type: _typeFilter,
+      sort: _sortOption,
+    );
+
     if (posts.isEmpty) {
       return Center(
         child: Column(
@@ -245,110 +377,52 @@ class _HomeScreenState extends State<HomeScreen> {
                 size: 48, color: AppColors.textSecondary),
             const SizedBox(height: 12),
             const Text('No posts yet',
-                style: TextStyle(
-                    color: AppColors.textSecondary, fontSize: 15)),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 15)),
             const SizedBox(height: 8),
             const Text('Seed demo data from the top-right menu',
-                style: TextStyle(
-                    color: AppColors.textSecondary, fontSize: 12)),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
           ],
         ),
       );
     }
+
     return RefreshIndicator(
       color: AppColors.primary,
-      onRefresh: () => state.detectLocation(),
+      onRefresh: state.refresh,
       child: ListView.builder(
-        itemCount: posts.length,
+        controller: _scrollCtrl,
+        // +1 for the bottom indicator row
+        itemCount: posts.length + 1,
         itemBuilder: (context, index) {
-          final post = posts[index];
+          if (index == posts.length) {
+            // bottom indicator
+            if (state.loadingMore) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: CircularProgressIndicator(
+                      color: AppColors.primary, strokeWidth: 2),
+                ),
+              );
+            }
+            if (!state.hasMore) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: Text('— no more posts —',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
+          }
           return PostCard(
-            post: post,
-            onTap: () => _openDetail(context, post),
+            post: posts[index],
+            onTap: () => _openDetail(context, posts[index]),
           );
         },
       ),
-    );
-  }
-
-  Widget _buildSearchResults(AppState state) {
-    final all = state.filteredPosts(
-      _searchQuery,
-      crop: _cropFilter,
-      type: _typeFilter,
-      sort: _sortOption,
-    );
-    final officials = all.where((p) => p.isOfficial).toList();
-    final farmers = all.where((p) => !p.isOfficial).toList();
-
-    if (all.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.search_off, size: 40, color: AppColors.textSecondary),
-            const SizedBox(height: 8),
-            Text('No results for "$_searchQuery"',
-                style: const TextStyle(color: AppColors.textSecondary)),
-            const SizedBox(height: 4),
-            const Text('Browse crops and categories in the Dictionary tab',
-                style: TextStyle(
-                    color: AppColors.textSecondary, fontSize: 12)),
-          ],
-        ),
-      );
-    }
-
-    return ListView(
-      children: [
-        if (officials.isNotEmpty) ...[
-          Container(
-            margin: const EdgeInsets.fromLTRB(8, 12, 8, 0),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppColors.modeActive,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(10)),
-              border: Border.all(
-                  color: AppColors.primary.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.menu_book, color: AppColors.primary, size: 18),
-                const SizedBox(width: 8),
-                Text(
-                  '⭐ ${officials.length} official guide${officials.length == 1 ? '' : 's'} found',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primaryDark,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ...officials.map((p) => _OfficialSearchCard(
-                post: p,
-                onTap: () => _openDetail(context, p),
-              )),
-        ],
-        if (farmers.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              officials.isEmpty ? 'Community posts' : 'Community posts',
-              style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textSecondary),
-            ),
-          ),
-          ...farmers.map((p) => PostCard(
-                post: p,
-                onTap: () => _openDetail(context, p),
-              )),
-        ],
-      ],
     );
   }
 
@@ -360,15 +434,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _OfficialSearchCard extends StatelessWidget {
+class _DictResultTile extends StatelessWidget {
   final Post post;
   final VoidCallback onTap;
-
-  const _OfficialSearchCard({required this.post, required this.onTap});
+  const _DictResultTile({required this.post, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
@@ -376,14 +449,16 @@ class _OfficialSearchCard extends StatelessWidget {
           color: Colors.white,
           border: Border(
             left: const BorderSide(color: AppColors.primary, width: 4),
-            right: BorderSide(color: AppColors.primary.withOpacity(0.2)),
-            bottom: BorderSide(color: AppColors.primary.withOpacity(0.2)),
+            right:
+                BorderSide(color: AppColors.primary.withOpacity(0.2)),
+            bottom:
+                BorderSide(color: AppColors.primary.withOpacity(0.2)),
           ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withOpacity(0.08),
-              blurRadius: 6,
-              offset: const Offset(0, 3),
+              color: AppColors.primary.withOpacity(0.06),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
@@ -395,7 +470,7 @@ class _OfficialSearchCard extends StatelessWidget {
               Row(
                 children: [
                   const Icon(Icons.star,
-                      color: AppColors.verifiedGold, size: 14),
+                      color: AppColors.verifiedGold, size: 13),
                   const SizedBox(width: 4),
                   const Text('Official Guide',
                       style: TextStyle(
@@ -403,14 +478,15 @@ class _OfficialSearchCard extends StatelessWidget {
                           color: AppColors.verifiedGold,
                           fontWeight: FontWeight.bold)),
                   const SizedBox(width: 8),
-                  if (post.dictCrop.isNotEmpty) _SmallTag(post.dictCrop),
+                  if (post.dictCrop.isNotEmpty)
+                    _Tag(post.dictCrop),
                   if (post.dictCategory.isNotEmpty) ...[
                     const SizedBox(width: 4),
-                    _SmallTag(post.dictCategory),
+                    _Tag(post.dictCategory),
                   ],
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 post.content.textShort,
                 style: const TextStyle(
@@ -418,17 +494,7 @@ class _OfficialSearchCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (post.dictTags.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 4,
-                  children: post.dictTags
-                      .take(4)
-                      .map((t) => _SmallTag('#$t'))
-                      .toList(),
-                ),
-              ],
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -457,9 +523,9 @@ class _OfficialSearchCard extends StatelessWidget {
   }
 }
 
-class _SmallTag extends StatelessWidget {
+class _Tag extends StatelessWidget {
   final String label;
-  const _SmallTag(this.label);
+  const _Tag(this.label);
 
   @override
   Widget build(BuildContext context) {
@@ -471,8 +537,7 @@ class _SmallTag extends StatelessWidget {
         border: Border.all(color: AppColors.primary.withOpacity(0.3)),
       ),
       child: Text(label,
-          style: const TextStyle(
-              fontSize: 10, color: AppColors.primaryDark)),
+          style: const TextStyle(fontSize: 10, color: AppColors.primaryDark)),
     );
   }
 }

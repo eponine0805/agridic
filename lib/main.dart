@@ -125,6 +125,13 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
+  final _homeScrollCtrl = ScrollController();
+
+  @override
+  void dispose() {
+    _homeScrollCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +249,7 @@ class _MainShellState extends State<MainShell> {
 
   Widget _buildBody() {
     return switch (_selectedIndex) {
-      0 => const HomeScreen(),
+      0 => HomeScreen(scrollController: _homeScrollCtrl),
       1 => const DictionaryScreen(),
       3 => const MapScreen(),
       4 => const _ProfileScreen(),
@@ -253,6 +260,17 @@ class _MainShellState extends State<MainShell> {
   void _onNavTap(int index) {
     if (index == 2) {
       _openPostCreate();
+      return;
+    }
+    // ホームタブを既にホームにいる状態で押したらトップへスクロール
+    if (index == 0 && _selectedIndex == 0) {
+      if (_homeScrollCtrl.hasClients) {
+        _homeScrollCtrl.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
       return;
     }
     setState(() => _selectedIndex = index);

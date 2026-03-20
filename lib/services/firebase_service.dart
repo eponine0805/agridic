@@ -11,16 +11,40 @@ class FirebaseService {
   static final _storage = FirebaseStorage.instance;
   static const _col = 'posts';
 
-  /// Firestoreからポスト一覧をリアルタイムストリームで取得
-  static Stream<List<Post>> streamPosts() {
-    return _db
+  /// [since] より新しい投稿だけ取得（pull-to-refresh 用）
+  /// 新着3件なら3 reads、新着0件なら0 reads
+  static Future<List<Post>> fetchPostsSince(DateTime since) async {
+    final snap = await _db
+        .collection(_col)
+        .where('timestamp', isGreaterThan: Timestamp.fromDate(since))
+        .orderBy('timestamp', descending: true)
+        .get();
+    return snap.docs
+        .map((d) => Post.fromFirestore(d))
+        .where((p) => !p.isHidden)
+        .toList();
+  }
+
+  /// 最新20件を1回取得（ページネーション用）
+  /// [after] に前ページの最後の DocumentSnapshot を渡すと続きを取得
+  static Future<({List<Post> posts, DocumentSnapshot? lastDoc})> fetchPostsPage({
+    DocumentSnapshot? after,
+    int limit = 20,
+  }) async {
+    var query = _db
         .collection(_col)
         .orderBy('timestamp', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => Post.fromFirestore(d))
-            .where((p) => !p.isHidden)
-            .toList());
+        .limit(limit);
+    if (after != null) query = query.startAfterDocument(after);
+    final snap = await query.get();
+    final posts = snap.docs
+        .map((d) => Post.fromFirestore(d))
+        .where((p) => !p.isHidden)
+        .toList();
+    return (
+      posts: posts,
+      lastDoc: snap.docs.isNotEmpty ? snap.docs.last : null,
+    );
   }
 
   /// ポストをFirestoreに保存（新規作成 or 更新）
