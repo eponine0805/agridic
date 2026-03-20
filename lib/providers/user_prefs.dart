@@ -2,8 +2,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import '../models/app_notification.dart';
 import '../services/firebase_service.dart';
 
 class UserPrefs extends ChangeNotifier {
@@ -13,11 +15,17 @@ class UserPrefs extends ChangeNotifier {
   final _db = FirebaseFirestore.instance;
   final _googleSignIn = GoogleSignIn();
   StreamSubscription<User?>? _authSub;
+  StreamSubscription<int>? _unreadSub;
 
   User? _user;
   String _role = 'farmer';
   bool _firstDownloadDone = false;
   bool _loading = true;
+
+  // ─── 通知キャッシュ ────────────────────────────────────────────────
+  int _unreadCount = 0;
+  List<AppNotification>? _cachedNotifications;
+  DateTime? _notifLastLoaded;
 
   bool get isLoading => _loading;
   bool get isLoggedIn => _user != null;
@@ -31,6 +39,11 @@ class UserPrefs extends ChangeNotifier {
   bool get isAdmin => _role == 'admin';
   bool get isExpert => _role == 'expert' || _role == 'admin';
   bool get firstDownloadDone => _firstDownloadDone;
+  int get unreadCount => _unreadCount;
+  List<AppNotification>? get cachedNotifications => _cachedNotifications;
+  bool get notifCacheValid =>
+      _notifLastLoaded != null &&
+      DateTime.now().difference(_notifLastLoaded!).inMinutes < 5;
 
   UserPrefs() {
     _init();
@@ -44,8 +57,14 @@ class UserPrefs extends ChangeNotifier {
       _user = user;
       if (user != null) {
         await _loadRole(user.uid);
+        _startUnreadStream(user.uid);
+        await _setupFcm(user.uid);
       } else {
         _role = 'farmer';
+        _stopUnreadStream();
+        _unreadCount = 0;
+        _cachedNotifications = null;
+        _notifLastLoaded = null;
       }
       _loading = false;
       notifyListeners();
@@ -65,8 +84,68 @@ class UserPrefs extends ChangeNotifier {
     }
   }
 
+  // ─── FCM セットアップ ──────────────────────────────────────────────
 
-  /// Sign in with email/password. Returns null on success, error message on failure.
+  Future<void> _setupFcm(String uid) async {
+    try {
+      // 通知権限をリクエスト（Android 13+ / iOS）
+      final settings = await FirebaseMessaging.instance.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (settings.authorizationStatus == AuthorizationStatus.denied) return;
+
+      // FCM トークンを取得して Firestore に保存
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await FirebaseService.saveFcmToken(uid, token);
+      }
+
+      // トークン更新時に再保存
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+        FirebaseService.saveFcmToken(uid, newToken);
+      });
+
+      // 農業アラート全配信トピックを購読
+      await FirebaseMessaging.instance.subscribeToTopic('broadcasts');
+    } catch (_) {
+      // FCM が使えない環境（エミュレータ等）はスキップ
+    }
+  }
+
+  // ─── 未読数ストリーム（UserPrefs 内で 1 本だけ管理）─────────────────
+
+  void _startUnreadStream(String uid) {
+    _unreadSub?.cancel();
+    _unreadSub = FirebaseService.streamUnreadCount(uid).listen((count) {
+      _unreadCount = count;
+      notifyListeners();
+    });
+  }
+
+  void _stopUnreadStream() {
+    _unreadSub?.cancel();
+    _unreadSub = null;
+  }
+
+  // ─── 通知キャッシュ更新 ───────────────────────────────────────────
+
+  /// 通知一覧をキャッシュとして保存（NotificationsScreen から呼ぶ）
+  void setCachedNotifications(List<AppNotification> list) {
+    _cachedNotifications = list;
+    _notifLastLoaded = DateTime.now();
+    notifyListeners();
+  }
+
+  /// 既読化後に未読数をローカルでリセット
+  void resetUnreadCount() {
+    _unreadCount = 0;
+    notifyListeners();
+  }
+
+  // ─── 認証 ─────────────────────────────────────────────────────────
+
   Future<String?> signIn(String email, String password) async {
     try {
       await _auth.signInWithEmailAndPassword(
@@ -77,11 +156,10 @@ class UserPrefs extends ChangeNotifier {
     }
   }
 
-  /// Sign in with Google. Returns null on success, error message on failure.
   Future<String?> signInWithGoogle() async {
     try {
       final googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) return null; // user cancelled
+      if (googleUser == null) return null;
       final googleAuth = await googleUser.authentication;
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
@@ -90,11 +168,10 @@ class UserPrefs extends ChangeNotifier {
       final userCredential = await _auth.signInWithCredential(credential);
       final user = userCredential.user;
       if (user != null) {
-        // Firestoreにユーザードキュメントがなければ作成（既存のロールは上書きしない）
         final doc = await _db.collection('users').doc(user.uid).get();
         if (!doc.exists) {
           await _db.collection('users').doc(user.uid).set({
-            'role': 'farmer', // 新規ユーザーはfarmer。管理者が昇格する
+            'role': 'farmer',
             'userName':
                 user.displayName ?? user.email?.split('@').first ?? 'User',
             'email': user.email ?? '',
@@ -107,16 +184,14 @@ class UserPrefs extends ChangeNotifier {
       return e.message ?? 'Google sign-in failed';
     } catch (e) {
       final msg = e.toString();
-      // Only treat explicit user-cancel as silent (not developer errors)
-      if (msg.contains('sign_in_canceled') || msg.contains('sign_in_cancelled')) {
+      if (msg.contains('sign_in_canceled') ||
+          msg.contains('sign_in_cancelled')) {
         return null;
       }
-      // Surface all other errors (including DEVELOPER_ERROR / code 10)
       return msg;
     }
   }
 
-  /// Register a new account. Returns null on success, error message on failure.
   Future<String?> register(
       String email, String password, String userName) async {
     try {
@@ -124,7 +199,7 @@ class UserPrefs extends ChangeNotifier {
           email: email.trim(), password: password);
       await cred.user?.updateDisplayName(userName.trim());
       await _db.collection('users').doc(cred.user!.uid).set({
-        'role': 'farmer', // 新規ユーザーはfarmer。管理者が昇格する
+        'role': 'farmer',
         'userName': userName.trim(),
         'email': email.trim(),
         'createdAt': FieldValue.serverTimestamp(),
@@ -137,18 +212,19 @@ class UserPrefs extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    try {
+      await FirebaseMessaging.instance.unsubscribeFromTopic('broadcasts');
+    } catch (_) {}
     await _googleSignIn.signOut();
     await _auth.signOut();
   }
 
-  /// Reload role from Firestore (call after role changes)
   Future<void> reloadRole() async {
     if (_user == null) return;
     await _loadRole(_user!.uid);
     notifyListeners();
   }
 
-  /// Update display name in Firebase Auth and Firestore
   Future<String?> updateDisplayName(String newName) async {
     final name = newName.trim();
     if (name.isEmpty) return 'Name cannot be empty';
@@ -156,7 +232,6 @@ class UserPrefs extends ChangeNotifier {
       await _user?.updateDisplayName(name);
       await _db.collection('users').doc(_user!.uid).set(
           {'userName': name}, SetOptions(merge: true));
-      // Firebase Auth のキャッシュを再読み込みして displayName を反映させる
       await _auth.currentUser?.reload();
       _user = _auth.currentUser;
       notifyListeners();
@@ -165,7 +240,6 @@ class UserPrefs extends ChangeNotifier {
       return 'Failed to update name';
     }
   }
-
 
   Future<void> markFirstDownloadDone() async {
     final prefs = await SharedPreferences.getInstance();
@@ -177,6 +251,7 @@ class UserPrefs extends ChangeNotifier {
   @override
   void dispose() {
     _authSub?.cancel();
+    _unreadSub?.cancel();
     super.dispose();
   }
 }

@@ -191,33 +191,42 @@ class AppState extends ChangeNotifier {
   Future<void> toggleLike(
       String postId, String userId, String likerName) async {
     final idx = _posts.indexWhere((p) => p.postId == postId);
-    final post = idx >= 0 ? _posts[idx] : null;
-    final alreadyLiked = post?.likedBy.contains(userId) ?? false;
+    if (idx < 0) return;
+    final post = _posts[idx];
+    final alreadyLiked = post.likedBy.contains(userId);
 
     // ローカルで楽観的更新（Firestore読み込み不要）
-    if (idx >= 0) {
-      final p = _posts[idx];
+    if (alreadyLiked) {
+      post.likes--;
+      post.likedBy = post.likedBy.where((id) => id != userId).toList();
+    } else {
+      post.likes++;
+      post.likedBy = [...post.likedBy, userId];
+    }
+    notifyListeners();
+
+    try {
+      await FirebaseService.toggleLike(postId, userId, alreadyLiked);
+      // いいね追加時に通知を作成（自分の投稿でない場合のみ）
+      if (!alreadyLiked && post.userId != userId) {
+        await FirebaseService.addNotification(
+          userId: post.userId,
+          type: 'like',
+          title: '$likerName がいいねしました',
+          body: post.content.textShort,
+          postId: postId,
+        );
+      }
+    } catch (_) {
+      // Firestore 失敗時はロールバック
       if (alreadyLiked) {
-        p.likes--;
-        p.likedBy = p.likedBy.where((id) => id != userId).toList();
+        post.likes++;
+        post.likedBy = [...post.likedBy, userId];
       } else {
-        p.likes++;
-        p.likedBy = [...p.likedBy, userId];
+        post.likes--;
+        post.likedBy = post.likedBy.where((id) => id != userId).toList();
       }
       notifyListeners();
-    }
-
-    await FirebaseService.toggleLike(postId, userId, alreadyLiked);
-
-    // いいね追加時に通知を作成（自分の投稿でない場合のみ）
-    if (!alreadyLiked && post != null && post.userId != userId) {
-      await FirebaseService.addNotification(
-        userId: post.userId,
-        type: 'like',
-        title: '$likerName がいいねしました',
-        body: post.content.textShort,
-        postId: postId,
-      );
     }
   }
 

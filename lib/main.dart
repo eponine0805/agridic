@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'providers/app_state.dart';
 import 'providers/user_prefs.dart';
 import 'screens/home_screen.dart';
@@ -14,13 +15,22 @@ import 'screens/admin_users_screen.dart';
 import 'screens/detail_screen.dart';
 import 'screens/user_posts_screen.dart';
 import 'screens/notifications_screen.dart';
-import 'services/firebase_service.dart';
 import 'utils/app_colors.dart';
 import 'widgets/post_card.dart';
+
+/// バックグラウンド / 終了状態でのプッシュ通知受信ハンドラ
+/// トップレベル関数でなければならない
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  // システムが自動でトレイ通知を表示する。追加処理は不要。
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  // バックグラウンドハンドラを登録
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   runApp(
     MultiProvider(
       providers: [
@@ -130,6 +140,43 @@ class _MainShellState extends State<MainShell> {
   final _homeScrollCtrl = ScrollController();
 
   @override
+  void initState() {
+    super.initState();
+    // フォアグラウンド中にプッシュ通知が届いたら SnackBar で表示
+    FirebaseMessaging.onMessage.listen((message) {
+      if (!mounted) return;
+      final title = message.notification?.title ?? '';
+      final body = message.notification?.body ?? '';
+      if (title.isEmpty) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(body.isNotEmpty ? '$title\n$body' : title),
+        backgroundColor: AppColors.primary,
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: '確認',
+          textColor: Colors.white,
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => MultiProvider(
+                  providers: [
+                    ChangeNotifierProvider.value(
+                        value: context.read<AppState>()),
+                    ChangeNotifierProvider.value(
+                        value: context.read<UserPrefs>()),
+                  ],
+                  child: const NotificationsScreen(),
+                ),
+              ),
+            );
+          },
+        ),
+      ));
+    });
+  }
+
+  @override
   void dispose() {
     _homeScrollCtrl.dispose();
     super.dispose();
@@ -203,57 +250,52 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
       actions: [
-        // 通知ベルアイコン
+        // 通知ベルアイコン（UserPrefs のキャッシュ済み未読数を使用 — Firestore ストリーム不要）
         Consumer<UserPrefs>(
           builder: (context, userPrefs, _) {
             if (!userPrefs.isLoggedIn) return const SizedBox.shrink();
-            return StreamBuilder<int>(
-              stream: FirebaseService.streamUnreadCount(userPrefs.userId),
-              builder: (context, snap) {
-                final count = snap.data ?? 0;
-                return IconButton(
-                  icon: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      const Icon(Icons.notifications_outlined,
-                          color: Colors.white, size: 24),
-                      if (count > 0)
-                        Positioned(
-                          right: -4,
-                          top: -4,
-                          child: Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: const BoxDecoration(
-                              color: AppColors.danger,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Text(
-                              count > 9 ? '9+' : '$count',
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                          ),
+            final count = userPrefs.unreadCount;
+            return IconButton(
+              icon: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Icon(Icons.notifications_outlined,
+                      color: Colors.white, size: 24),
+                  if (count > 0)
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: const BoxDecoration(
+                          color: AppColors.danger,
+                          shape: BoxShape.circle,
                         ),
-                    ],
-                  ),
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => MultiProvider(
-                        providers: [
-                          ChangeNotifierProvider.value(
-                              value: context.read<AppState>()),
-                          ChangeNotifierProvider.value(
-                              value: context.read<UserPrefs>()),
-                        ],
-                        child: const NotificationsScreen(),
+                        child: Text(
+                          count > 9 ? '9+' : '$count',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ),
+                ],
+              ),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MultiProvider(
+                    providers: [
+                      ChangeNotifierProvider.value(
+                          value: context.read<AppState>()),
+                      ChangeNotifierProvider.value(
+                          value: context.read<UserPrefs>()),
+                    ],
+                    child: const NotificationsScreen(),
                   ),
-                );
-              },
+                ),
+              ),
             );
           },
         ),

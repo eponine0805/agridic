@@ -407,6 +407,12 @@ class FirebaseService {
     return snap.docs.map((d) => {'uid': d.id, ...d.data()}).toList();
   }
 
+  /// FCM デバイストークンを Firestore の users/{uid} に保存
+  static Future<void> saveFcmToken(String uid, String token) async {
+    await _db.collection('users').doc(uid).set(
+        {'fcmToken': token}, SetOptions(merge: true));
+  }
+
   static List<Post> _demoData() {
     final now = DateTime.now();
     return [

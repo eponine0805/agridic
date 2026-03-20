@@ -23,24 +23,39 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
+    final userPrefs = context.read<UserPrefs>();
+
+    // キャッシュが有効かつ強制更新でなければキャッシュを使う
+    if (!forceRefresh && userPrefs.notifCacheValid) {
+      if (mounted) {
+        setState(() {
+          _notifications = userPrefs.cachedNotifications ?? [];
+          _loading = false;
+        });
+      }
+      return;
+    }
+
     setState(() => _loading = true);
-    final userId = context.read<UserPrefs>().userId;
+    final userId = userPrefs.userId;
     try {
-      final personal =
-          await FirebaseService.fetchNotifications(userId);
+      final personal = await FirebaseService.fetchNotifications(userId);
       final broadcasts = await FirebaseService.fetchBroadcasts();
 
-      // マージして時刻順ソート
       final all = [...personal, ...broadcasts];
       all.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+      // キャッシュを更新
+      userPrefs.setCachedNotifications(all);
       _notifications = all;
 
-      // 個人通知を既読に
+      // 個人通知を既読に → unreadCount をリセット
       final unread =
           personal.where((n) => !n.isRead).map((n) => n.id).toList();
       if (unread.isNotEmpty) {
         await FirebaseService.markNotificationsRead(userId, unread);
+        userPrefs.resetUnreadCount();
       }
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
@@ -80,7 +95,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, size: 20),
-            onPressed: _load,
+            onPressed: () => _load(forceRefresh: true),
           ),
         ],
       ),
