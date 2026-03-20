@@ -1,8 +1,7 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/user_prefs.dart';
+import '../services/dict_local_service.dart';
 import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
 
@@ -72,37 +71,11 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
     });
     try {
       final posts = await FirebaseService.fetchDictionaryPosts();
-      final prefs = await SharedPreferences.getInstance();
-      final jsonList = <String>[];
-      for (final post in posts) {
-        final entry = <String, dynamic>{
-          'postId': post.postId,
-          'userId': post.userId,
-          'isOfficial': post.isOfficial,
-          'userRole': post.userRole,
-          'userName': post.userName,
-          'dictCrop': post.dictCrop,
-          'dictCategory': post.dictCategory,
-          'dictTags': post.dictTags,
-          'inDictionary': post.inDictionary,
-          'textShort': post.content.textShort,
-          'textFull': post.content.textFull,
-          'steps': post.content.steps,
-        };
-        // モードに応じて画像URLを含める
-        if (_selectedMode >= 1) {
-          entry['imageLow'] = post.content.imageLow;
-        }
-        if (_selectedMode >= 2) {
-          entry['imageHigh'] = post.content.imageHigh;
-          entry['images'] = post.content.images;
-        }
-        jsonList.add(jsonEncode(entry));
-        if (mounted) setState(() => _downloadedCount++);
+      for (var i = 0; i < posts.length; i++) {
+        if (mounted) setState(() => _downloadedCount = i + 1);
         await Future.delayed(const Duration(milliseconds: 10));
       }
-      await prefs.setStringList('dict_cache', jsonList);
-      await prefs.setInt('dict_cache_mode', _selectedMode);
+      await DictLocalService.save(posts, _selectedMode);
       await context.read<UserPrefs>().markFirstDownloadDone();
       if (mounted) setState(() {
         _downloading = false;

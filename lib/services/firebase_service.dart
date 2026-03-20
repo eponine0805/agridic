@@ -16,6 +16,7 @@ class FirebaseService {
     return _db
         .collection(_col)
         .orderBy('timestamp', descending: true)
+        .limit(150)
         .snapshots()
         .map((snap) => snap.docs
             .map((d) => Post.fromFirestore(d))
