@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/app_notification.dart';
@@ -57,13 +58,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         await FirebaseService.markNotificationsRead(userId, unread);
         userPrefs.resetUnreadCount();
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[NotificationsScreen] load failed: $e');
+    }
     if (mounted) setState(() => _loading = false);
   }
 
   IconData _iconForType(String type) => switch (type) {
         'like' => Icons.favorite,
-        'dict_added' => Icons.menu_book,
         _ => Icons.campaign_outlined,
       };
 

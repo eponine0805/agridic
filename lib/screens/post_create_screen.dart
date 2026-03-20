@@ -53,6 +53,12 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     _rptCropCtrl.dispose();
     _rptLocationCtrl.dispose();
     _tagCtrl.dispose();
+    // 全ブロックの TextEditingController を dispose
+    for (final blocks in _blocks.values) {
+      for (final block in blocks) {
+        (block['ctrl'] as TextEditingController).dispose();
+      }
+    }
     super.dispose();
   }
 
@@ -85,8 +91,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     });
   }
 
-  void _removeBlock(int id) =>
-      setState(() => _currentBlocks.removeWhere((b) => b['id'] == id));
+  void _removeBlock(int id) {
+    final block = _currentBlocks.firstWhere((b) => b['id'] == id);
+    (block['ctrl'] as TextEditingController).dispose();
+    setState(() => _currentBlocks.removeWhere((b) => b['id'] == id));
+  }
 
   void _moveBlock(int id, int direction) {
     final blocks = _currentBlocks;

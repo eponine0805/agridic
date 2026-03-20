@@ -72,7 +72,9 @@ class AppState extends ChangeNotifier {
               _contentWith(post.content,
                   imageLow: urls.low, imageHigh: urls.high),
             );
-          } catch (_) {}
+          } catch (e) {
+            debugPrint('[OfflineQueue] tweet image upload failed: $e');
+          }
         }
 
         // レポートのブロック画像（content.images にローカルパスが入っている場合）
@@ -85,8 +87,9 @@ class AppState extends ChangeNotifier {
                 final urls = await FirebaseService.uploadImage(
                     '${post.postId}_img_$i', XFile(img));
                 updated.add(urls.high.isNotEmpty ? urls.high : urls.low);
-              } catch (_) {
-                updated.add(''); // アップロード失敗は空URLで保存
+              } catch (e) {
+                debugPrint('[OfflineQueue] block image upload failed (index $i): $e');
+                updated.add('');
               }
             } else {
               updated.add(img);
@@ -96,7 +99,9 @@ class AppState extends ChangeNotifier {
         }
 
         await FirebaseService.savePost(post);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[OfflineQueue] failed to process queued post: $e');
+      }
     }
     await OfflineQueueService.clear();
     pendingQueueCount = 0;
@@ -158,7 +163,9 @@ class AppState extends ChangeNotifier {
       _posts = result.posts;
       _lastDoc = result.lastDoc;
       _hasMore = result.posts.length >= 20;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[AppState] _loadInitial failed: $e');
+    }
     isLoading = false;
     notifyListeners();
   }
@@ -177,7 +184,9 @@ class AppState extends ChangeNotifier {
         _posts = [...newPosts, ..._posts];
         notifyListeners();
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[AppState] refresh failed: $e');
+    }
   }
 
   /// 下スクロールで追加読み込み
@@ -194,7 +203,9 @@ class AppState extends ChangeNotifier {
       } else {
         _hasMore = false;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[AppState] loadMore failed: $e');
+    }
     _loadingMore = false;
     notifyListeners();
   }
@@ -221,7 +232,9 @@ class AppState extends ChangeNotifier {
       );
       currentLocation = (pos.latitude, pos.longitude);
       locationReady = true;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[AppState] detectLocation failed: $e');
+    }
     isDetectingLocation = false;
     notifyListeners();
   }
@@ -328,7 +341,9 @@ class AppState extends ChangeNotifier {
         _posts[idx] = updated;
         notifyListeners();
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[AppState] reloadPost($postId) failed: $e');
+    }
   }
 
   /// 投稿を追加（オフライン時はキューに保存）

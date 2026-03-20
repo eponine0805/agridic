@@ -570,7 +570,6 @@ class _DictConfigSheetState extends State<_DictConfigSheet> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    final addedToDict = _inDictionary && !widget.post.inDictionary;
     await FirebaseService.updatePost(widget.post.postId, {
       'inDictionary': _inDictionary,
       'dictCrop': _cropCtrl.text.trim(),
@@ -578,16 +577,6 @@ class _DictConfigSheetState extends State<_DictConfigSheet> {
       'dictTags': _tags,
       'isOfficial': _inDictionary ? true : widget.post.isOfficial,
     });
-    // 辞書に追加された場合、投稿者に通知
-    if (addedToDict && widget.post.userId.isNotEmpty) {
-      await FirebaseService.addNotification(
-        userId: widget.post.userId,
-        type: 'dict_added',
-        title: 'あなたの投稿が辞書に追加されました',
-        body: widget.post.content.textShort,
-        postId: widget.post.postId,
-      );
-    }
     if (!mounted) return;
     // ローカル状態を最新化してカードを再描画
     await context.read<AppState>().reloadPost(widget.post.postId);

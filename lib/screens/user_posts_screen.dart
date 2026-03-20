@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/post.dart';
@@ -59,7 +60,9 @@ class _UserPostsScreenState extends State<UserPostsScreen> {
       _posts.addAll(result.posts);
       _lastDoc = result.lastDoc;
       _hasMore = result.posts.length >= 20;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[UserPostsScreen] loadInitial failed: $e');
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -85,7 +88,9 @@ class _UserPostsScreenState extends State<UserPostsScreen> {
       } else {
         _hasMore = false;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[UserPostsScreen] loadMore failed: $e');
+    }
     if (mounted) setState(() => _loadingMore = false);
   }
 

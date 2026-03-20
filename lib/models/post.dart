@@ -109,7 +109,9 @@ class Post {
       userName: (m['userName'] ?? '') as String,
       content: PostContent.fromMap(
           (m['content'] as Map<String, dynamic>?) ?? {}),
-      location: locMap != null
+      location: locMap != null &&
+              locMap['lat'] != null &&
+              locMap['lng'] != null
           ? ((locMap['lat'] as num).toDouble(),
               (locMap['lng'] as num).toDouble())
           : null,
@@ -140,7 +142,9 @@ class Post {
       userName: (m['userName'] ?? '') as String,
       content: PostContent.fromMap(
           (m['content'] as Map<String, dynamic>?) ?? {}),
-      location: locMap != null
+      location: locMap != null &&
+              locMap['lat'] != null &&
+              locMap['lng'] != null
           ? ((locMap['lat'] as num).toDouble(),
               (locMap['lng'] as num).toDouble())
           : null,

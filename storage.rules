@@ -1,9 +1,16 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /{allPaths=**} {
+
+    // 投稿画像: images/{postId}/...
+    // 読み取りは全員可（公開コンテンツ）
+    // 書き込みは認証済みユーザーのみ、かつ 10MB 以内
+    match /images/{postId}/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024;
     }
+
+    // その他のパスはすべて拒否
   }
 }
