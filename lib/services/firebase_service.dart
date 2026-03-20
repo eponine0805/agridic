@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -167,8 +168,9 @@ class FirebaseService {
       await highRef.putData(
           rawBytes, SettableMetadata(contentType: 'image/jpeg'));
       highUrl = await highRef.getDownloadURL();
-    } catch (_) {
+    } catch (e) {
       // Storage未設定時は中品質base64（詳細表示でも十分綺麗）
+      debugPrint('[FirebaseService] Storage upload failed, falling back to base64: $e');
       final medBytes = await FlutterImageCompress.compressWithList(
         rawBytes,
         quality: 78,

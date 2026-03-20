@@ -443,7 +443,8 @@ class _Thumbnail extends StatelessWidget {
             errorBuilder: (_, __, ___) => const SizedBox.shrink(),
           ),
         );
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[PostCard] base64 decode failed: $e');
         return const SizedBox.shrink();
       }
     }

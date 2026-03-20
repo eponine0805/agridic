@@ -38,7 +38,8 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
         _info = info;
         _loadingInfo = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[DictDownloadScreen] getDictionaryInfo failed: $e');
       if (mounted) setState(() {
         _info = (count: 0, textBytes: 0, thumbBytes: 0, fullBytes: 0);
         _loadingInfo = false;
