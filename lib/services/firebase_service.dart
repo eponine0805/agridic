@@ -11,6 +11,20 @@ class FirebaseService {
   static final _storage = FirebaseStorage.instance;
   static const _col = 'posts';
 
+  /// [since] より新しい投稿だけ取得（pull-to-refresh 用）
+  /// 新着3件なら3 reads、新着0件なら0 reads
+  static Future<List<Post>> fetchPostsSince(DateTime since) async {
+    final snap = await _db
+        .collection(_col)
+        .where('timestamp', isGreaterThan: Timestamp.fromDate(since))
+        .orderBy('timestamp', descending: true)
+        .get();
+    return snap.docs
+        .map((d) => Post.fromFirestore(d))
+        .where((p) => !p.isHidden)
+        .toList();
+  }
+
   /// 最新20件を1回取得（ページネーション用）
   /// [after] に前ページの最後の DocumentSnapshot を渡すと続きを取得
   static Future<({List<Post> posts, DocumentSnapshot? lastDoc})> fetchPostsPage({

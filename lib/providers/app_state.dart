@@ -46,17 +46,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 上に引っ張って更新 — 最新20件を取得し、内容が変わっていれば差し替える
+  /// 上に引っ張って更新 — 直近の投稿より新しいものだけ取得して先頭に追加
+  /// 新着3件なら3 reads、新着なしなら0 reads
   Future<void> refresh() async {
     try {
-      final result = await FirebaseService.fetchPostsPage();
-      if (result.posts.isEmpty) return;
-      final newFirst = result.posts.first.postId;
-      final curFirst = _posts.isNotEmpty ? _posts.first.postId : '';
-      if (newFirst != curFirst) {
-        _posts = result.posts;
-        _lastDoc = result.lastDoc;
-        _hasMore = result.posts.length >= 20;
+      final since = _posts.isNotEmpty ? _posts.first.timestamp : null;
+      if (since == null) {
+        await _loadInitial();
+        return;
+      }
+      final newPosts = await FirebaseService.fetchPostsSince(since);
+      if (newPosts.isNotEmpty) {
+        _posts = [...newPosts, ..._posts];
         notifyListeners();
       }
     } catch (_) {}

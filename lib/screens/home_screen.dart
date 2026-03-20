@@ -8,7 +8,8 @@ import '../widgets/post_card.dart';
 import 'detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.scrollController});
+  final ScrollController? scrollController;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -19,7 +20,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String _typeFilter = 'all';
   String _sortOption = 'newest';
 
-  final _scrollCtrl = ScrollController();
+  final _ownScrollCtrl = ScrollController();
+  ScrollController get _scrollCtrl =>
+      widget.scrollController ?? _ownScrollCtrl;
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
 
@@ -46,7 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _scrollCtrl.removeListener(_onScroll);
-    _scrollCtrl.dispose();
+    _ownScrollCtrl.dispose(); // 外部コントローラは dispose しない
     _searchCtrl.dispose();
     super.dispose();
   }
