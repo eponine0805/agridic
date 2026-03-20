@@ -133,34 +133,38 @@ class FirebaseService {
 
   // ─── 画像アップロード ────────────────────────────────────────
 
-  /// 画像を低解像度(〜10KB)と高解像度の2種類でStorageにアップロードし
-  /// それぞれのダウンロードURLを返す
+  /// 画像をアップロードする
+  /// low: サムネイルをbase64 data URLとしてFirestoreに直接格納（Storage不要）
+  /// high: フル解像度をFirebase Storageにアップロード（失敗しても続行）
   static Future<({String low, String high})> uploadImage(
       String postId, XFile file) async {
     final rawBytes = await file.readAsBytes();
 
-    // Preview compression — readable quality for card thumbnails
-    final lowBytes = await FlutterImageCompress.compressWithList(
+    // サムネイル: 640px以下に圧縮してbase64 data URLとして返す
+    // → Firebase Storageのルール設定不要でFirestoreに直接格納できる
+    final thumbBytes = await FlutterImageCompress.compressWithList(
       rawBytes,
-      quality: 60,
+      quality: 72,
       minWidth: 640,
       minHeight: 640,
     );
+    final lowDataUrl =
+        'data:image/jpeg;base64,${base64Encode(thumbBytes)}';
 
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final lowRef =
-        _storage.ref('images/$postId/low_$timestamp.jpg');
-    final highRef =
-        _storage.ref('images/$postId/high_$timestamp.jpg');
+    // フル解像度: Firebase Storageに試みる（未設定でも投稿はできる）
+    String highUrl = '';
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final highRef =
+          _storage.ref('images/$postId/high_$timestamp.jpg');
+      await highRef.putData(
+          rawBytes, SettableMetadata(contentType: 'image/jpeg'));
+      highUrl = await highRef.getDownloadURL();
+    } catch (_) {
+      // Storage未設定時はスキップ（サムネイルは常に利用可能）
+    }
 
-    await Future.wait([
-      lowRef.putData(lowBytes, SettableMetadata(contentType: 'image/jpeg')),
-      highRef.putData(rawBytes, SettableMetadata(contentType: 'image/jpeg')),
-    ]);
-
-    final lowUrl = await lowRef.getDownloadURL();
-    final highUrl = await highRef.getDownloadURL();
-    return (low: lowUrl, high: highUrl);
+    return (low: lowDataUrl, high: highUrl);
   }
 
   // ─── 辞書ダウンロード ──────────────────────────────────────────

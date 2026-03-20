@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -433,8 +434,26 @@ class _Thumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (url.startsWith('data:image')) {
+      // base64 data URL（サムネイル）
+      try {
+        final base64Data = url.split(',').last;
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            base64Decode(base64Data),
+            height: 120,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          ),
+        );
+      } catch (_) {
+        return const SizedBox.shrink();
+      }
+    }
     if (!url.startsWith('http')) {
-      // Non-HTTP URLs (demo emoji strings, etc.) — skip rendering
+      // emoji等のプレースホルダー — 表示しない
       return const SizedBox.shrink();
     }
     return ClipRRect(

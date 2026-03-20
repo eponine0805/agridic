@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -192,6 +193,22 @@ class DetailScreen extends StatelessWidget {
   }
 
   Widget _buildImage(String url) {
+    if (url.startsWith('data:image')) {
+      try {
+        final base64Data = url.split(',').last;
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            base64Decode(base64Data),
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          ),
+        );
+      } catch (_) {
+        return const SizedBox.shrink();
+      }
+    }
     if (!url.startsWith('http')) {
       return const SizedBox.shrink();
     }

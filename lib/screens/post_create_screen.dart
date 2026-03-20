@@ -234,24 +234,22 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       if (loc.isNotEmpty) shortParts.add('— $loc');
 
       final activeBlocks = _blocks[_activeMode]!;
-      String? uploadErr;
       for (final block in activeBlocks) {
         if (block['type'] == 'image' && block['file'] != null) {
           try {
             final urls = await FirebaseService.uploadImage(
                 '${postId}_img_${block['id']}', block['file'] as XFile);
-            (block['ctrl'] as TextEditingController).text = urls.high;
+            // high-res Storage URL を優先。Storage未設定時はbase64サムネイルを使用
+            (block['ctrl'] as TextEditingController).text =
+                urls.high.isNotEmpty ? urls.high : urls.low;
           } catch (e) {
-            uploadErr = 'Image upload failed: $e';
-            break;
+            // ファイル読み込み失敗など予期しないエラーのみここに来る
+            setState(() => _submitting = false);
+            if (!mounted) return;
+            _showError('Image processing failed: $e');
+            return;
           }
         }
-      }
-      if (uploadErr != null) {
-        setState(() => _submitting = false);
-        if (!mounted) return;
-        _showError(uploadErr!);
-        return;
       }
 
       final (tf, imgs, steps) = _blocksToText(activeBlocks);
