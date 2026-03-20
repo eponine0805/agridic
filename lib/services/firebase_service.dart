@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -180,6 +181,55 @@ class FirebaseService {
         .where('inDictionary', isEqualTo: true)
         .get();
     return snap.size;
+  }
+
+  /// 辞書エントリの実バイト数を計算して返す
+  /// textBytes: テキストのみのJSONバイト数
+  /// thumbBytes: テキスト + サムネイル画像込みの推定バイト数
+  /// fullBytes:  テキスト + フル画像込みの推定バイト数
+  static Future<({int count, int textBytes, int thumbBytes, int fullBytes})>
+      getDictionaryInfo() async {
+    final posts = await fetchDictionaryPosts();
+
+    int textBytes = 0;
+    int thumbsExtra = 0;
+    int fullExtra = 0;
+
+    for (final post in posts) {
+      final textEntry = {
+        'postId': post.postId,
+        'userId': post.userId,
+        'isOfficial': post.isOfficial,
+        'userRole': post.userRole,
+        'userName': post.userName,
+        'dictCrop': post.dictCrop,
+        'dictCategory': post.dictCategory,
+        'dictTags': post.dictTags,
+        'inDictionary': post.inDictionary,
+        'textShort': post.content.textShort,
+        'textFull': post.content.textFull,
+        'steps': post.content.steps,
+      };
+      textBytes += utf8.encode(jsonEncode(textEntry)).length;
+
+      // imageLow が Firebase Storage URL の場合のみカウント
+      if (post.content.imageLow.startsWith('http')) {
+        thumbsExtra += 25 * 1024; // 圧縮サムネイル ~25KB
+        fullExtra += 25 * 1024;
+      }
+      // フル画像
+      final realImages = post.content.images
+          .where((img) => img.startsWith('http'))
+          .length;
+      fullExtra += realImages * 200 * 1024; // フル画像 ~200KB/枚
+    }
+
+    return (
+      count: posts.length,
+      textBytes: textBytes,
+      thumbBytes: textBytes + thumbsExtra,
+      fullBytes: textBytes + fullExtra,
+    );
   }
 
   /// 投稿を削除（投稿者本人またはadminのみ）
