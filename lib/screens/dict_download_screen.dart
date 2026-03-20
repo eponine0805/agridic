@@ -25,6 +25,7 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
   /// キャッシュ情報（再ダウンロード時に使う）
   DateTime? _cachedSavedAt;
   int _cachedCount = 0;
+  Set<String> _cachedIds = {};
 
   /// 0 = text only, 1 = text + thumbnails, 2 = text + full images
   int _selectedMode = 1;
@@ -47,11 +48,12 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
         _cachedSavedAt = cached.savedAt;
         _cachedCount = cached.posts.length;
         _selectedMode = cached.mode;
+        _cachedIds = cached.posts.map((p) => p.postId).toSet();
       }
 
-      // 差分のみのサイズを表示（再ダウンロード時）
+      // 差分のみのサイズを表示（timestamp でなくIDで比較）
       final info = await FirebaseService.getDictionaryInfo(
-        since: _isIncremental ? _cachedSavedAt : null,
+        excludeIds: _isIncremental ? _cachedIds : null,
       );
       if (mounted) setState(() {
         _info = info;
@@ -90,10 +92,8 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
       _downloadError = null;
     });
     try {
-      // 差分ダウンロード: 再ダウンロード時はキャッシュ以降の新規エントリのみ取得
-      final posts = await FirebaseService.fetchDictionaryPosts(
-        since: _isIncremental ? _cachedSavedAt : null,
-      );
+      // 全件取得してID照合で差分を merge（timestamp でなくIDで比較）
+      final posts = await FirebaseService.fetchDictionaryPosts();
 
       for (var i = 0; i < posts.length; i++) {
         if (mounted) setState(() => _downloadedCount = i + 1);
