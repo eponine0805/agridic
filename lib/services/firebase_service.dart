@@ -213,10 +213,13 @@ class FirebaseService {
   /// textBytes: テキストのみのJSONバイト数
   /// thumbBytes: テキスト + サムネイル画像込みの推定バイト数
   /// fullBytes:  テキスト + フル画像込みの推定バイト数
-  /// [since] を渡すと新規エントリのみ対象
+  /// [excludeIds] を渡すとそのIDを除いた差分エントリのみ対象（timestamp でなくIDで比較）
   static Future<({int count, int textBytes, int thumbBytes, int fullBytes})>
-      getDictionaryInfo({DateTime? since}) async {
-    final posts = await fetchDictionaryPosts(since: since);
+      getDictionaryInfo({Set<String>? excludeIds}) async {
+    final allPosts = await fetchDictionaryPosts();
+    final posts = excludeIds != null
+        ? allPosts.where((p) => !excludeIds.contains(p.postId)).toList()
+        : allPosts;
 
     int textBytes = 0;
     int thumbsExtra = 0;

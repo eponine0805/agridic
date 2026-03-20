@@ -34,6 +34,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // ローカルキャッシュ（辞書ダウンロード済みデータ）
   List<Post> _dictCache = [];
 
+  double _bottomOverscroll = 0;
+
   static const _crops = ['Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
 
   // Category filters: label → dictCategory value (empty = no filter)
@@ -91,6 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Crops',
             isExpanded: _cropsExpanded,
             isActive: _cropFilter.isNotEmpty,
+            selectedValue: _cropFilter.isNotEmpty ? _cropFilter : null,
             onTap: () =>
                 setState(() => _cropsExpanded = !_cropsExpanded),
             onClear: _cropFilter.isNotEmpty
@@ -511,42 +514,71 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    return RefreshIndicator(
-      color: AppColors.primary,
-      onRefresh: state.refresh,
-      child: ListView.builder(
-        controller: _scrollCtrl,
-        // +1 for the bottom indicator row
-        itemCount: posts.length + 1,
-        itemBuilder: (context, index) {
-          if (index == posts.length) {
-            // bottom indicator
-            if (state.loadingMore) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Center(
-                  child: CircularProgressIndicator(
-                      color: AppColors.primary, strokeWidth: 2),
-                ),
-              );
-            }
-            if (!state.hasMore) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(
-                  child: Text('— no more posts —',
-                      style: TextStyle(
-                          fontSize: 12, color: AppColors.textSecondary)),
-                ),
-              );
-            }
-            return const SizedBox.shrink();
+    return NotificationListener<OverscrollNotification>(
+      onNotification: (n) {
+        if (n.overscroll > 0 && !state.loadingMore) {
+          final newVal = _bottomOverscroll + n.overscroll;
+          setState(() => _bottomOverscroll = newVal.clamp(0, 80));
+          if (newVal >= 80) {
+            setState(() => _bottomOverscroll = 0);
+            state.refresh();
           }
-          return PostCard(
-            post: posts[index],
-            onTap: () => _openDetail(context, posts[index]),
-          );
-        },
+        } else if (n.overscroll < 0 && _bottomOverscroll > 0) {
+          setState(() => _bottomOverscroll = 0);
+        }
+        return false;
+      },
+      child: RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: state.refresh,
+        child: ListView.builder(
+          controller: _scrollCtrl,
+          physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics()),
+          // +1 for the bottom indicator row
+          itemCount: posts.length + 1,
+          itemBuilder: (context, index) {
+            if (index == posts.length) {
+              // bottom indicator
+              if (state.loadingMore) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                        color: AppColors.primary, strokeWidth: 2),
+                  ),
+                );
+              }
+              if (!state.hasMore) {
+                final progress = (_bottomOverscroll / 80).clamp(0.0, 1.0);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: progress > 0
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              value: progress,
+                              color: AppColors.primary,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text('— no more posts —',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary)),
+                  ),
+                );
+              }
+              return const SizedBox.shrink();
+            }
+            return PostCard(
+              post: posts[index],
+              onTap: () => _openDetail(context, posts[index]),
+            );
+          },
+        ),
       ),
     );
   }
@@ -733,6 +765,8 @@ class _FilterSectionHeader extends StatelessWidget {
   final bool isActive;
   final VoidCallback onTap;
   final VoidCallback? onClear;
+  /// 閉じている時に選択値をバッジ表示する（Crops 用）
+  final String? selectedValue;
 
   const _FilterSectionHeader({
     required this.label,
@@ -740,6 +774,7 @@ class _FilterSectionHeader extends StatelessWidget {
     required this.isActive,
     required this.onTap,
     this.onClear,
+    this.selectedValue,
   });
 
   @override
@@ -747,41 +782,75 @@ class _FilterSectionHeader extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Row(
-        children: [
-          Icon(
-            isExpanded ? Icons.expand_less : Icons.expand_more,
-            size: 16,
-            color: isActive ? AppColors.primary : AppColors.textSecondary,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isActive ? AppColors.primary : AppColors.textSecondary,
-            ),
-          ),
-          if (isActive) ...[
-            const SizedBox(width: 6),
-            Container(
-              width: 7,
-              height: 7,
-              decoration: const BoxDecoration(
-                color: AppColors.primary,
-                shape: BoxShape.circle,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          color: isExpanded
+              ? Colors.transparent
+              : (isActive
+                  ? AppColors.primary.withOpacity(0.07)
+                  : AppColors.background.withOpacity(0.6)),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          children: [
+            AnimatedRotation(
+              turns: isExpanded ? 0 : -0.25, // 0° open / -90° closed
+              duration: const Duration(milliseconds: 180),
+              child: Icon(
+                Icons.expand_less,
+                size: 18,
+                color: isActive ? AppColors.primary : AppColors.textSecondary,
               ),
             ),
-          ],
-          const Spacer(),
-          if (onClear != null)
-            GestureDetector(
-              onTap: onClear,
-              child: const Icon(Icons.close,
-                  size: 14, color: AppColors.textSecondary),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isActive ? AppColors.primary : AppColors.textSecondary,
+              ),
             ),
-        ],
+            // 閉じている & 選択中 → 選択値バッジを表示
+            if (!isExpanded && isActive && selectedValue != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  selectedValue!,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ] else if (isActive && isExpanded) ...[
+              const SizedBox(width: 6),
+              Container(
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+            const Spacer(),
+            if (onClear != null)
+              GestureDetector(
+                onTap: onClear,
+                child: const Icon(Icons.close,
+                    size: 14, color: AppColors.textSecondary),
+              ),
+          ],
+        ),
       ),
     );
   }
