@@ -39,6 +39,15 @@ class UserPrefs extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _firstDownloadDone = prefs.getBool(_keyFirstLoginDone) ?? false;
 
+    // 全ユーザーをadminに昇格する一回限りのマイグレーション
+    final migrated = prefs.getBool('admin_migration_v1') ?? false;
+    if (!migrated) {
+      try {
+        await FirebaseService.promoteAllUsersToAdmin();
+        await prefs.setBool('admin_migration_v1', true);
+      } catch (_) {}
+    }
+
     _authSub = _auth.authStateChanges().listen((user) async {
       _user = user;
       if (user != null) {
@@ -64,25 +73,6 @@ class UserPrefs extends ChangeNotifier {
     }
   }
 
-  /// Claim admin if no admin exists yet. Returns true if claimed.
-  Future<bool> _tryClaimFirstAdmin(String uid) async {
-    try {
-      final existing = await _db
-          .collection('users')
-          .where('role', isEqualTo: 'admin')
-          .limit(1)
-          .get();
-      if (existing.docs.isNotEmpty) return false;
-      await _db
-          .collection('users')
-          .doc(uid)
-          .set({'role': 'admin'}, SetOptions(merge: true));
-      _role = 'admin';
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
 
   /// Sign in with email/password. Returns null on success, error message on failure.
   Future<String?> signIn(String email, String password) async {
@@ -112,14 +102,13 @@ class UserPrefs extends ChangeNotifier {
         final doc = await _db.collection('users').doc(user.uid).get();
         if (!doc.exists) {
           await _db.collection('users').doc(user.uid).set({
-            'role': 'farmer',
+            'role': 'admin',
             'userName':
                 user.displayName ?? user.email?.split('@').first ?? 'User',
             'email': user.email ?? '',
             'createdAt': FieldValue.serverTimestamp(),
           });
-          // First user to sign up becomes admin automatically
-          await _tryClaimFirstAdmin(user.uid);
+          _role = 'admin';
         }
       }
       return null;
@@ -144,13 +133,13 @@ class UserPrefs extends ChangeNotifier {
           email: email.trim(), password: password);
       await cred.user?.updateDisplayName(userName.trim());
       await _db.collection('users').doc(cred.user!.uid).set({
-        'role': 'farmer',
+        'role': 'admin',
         'userName': userName.trim(),
         'email': email.trim(),
         'createdAt': FieldValue.serverTimestamp(),
       });
-      // First user to register becomes admin automatically
-      await _tryClaimFirstAdmin(cred.user!.uid);
+      // ロールを明示的に反映（authStateChanges との race condition を回避）
+      _role = 'admin';
       return null;
     } on FirebaseAuthException catch (e) {
       return e.message ?? 'Registration failed';
@@ -187,16 +176,6 @@ class UserPrefs extends ChangeNotifier {
     }
   }
 
-  /// adminが存在しない場合のみ自分をadminに昇格する（初回bootstrap用）
-  /// 戻り値: true = 昇格成功, false = 既にadminが存在する
-  Future<bool> claimAdminIfNoneExists() async {
-    if (_user == null) return false;
-    final claimed = await _tryClaimFirstAdmin(_user!.uid);
-    if (claimed) {
-      notifyListeners();
-    }
-    return claimed;
-  }
 
   Future<void> markFirstDownloadDone() async {
     final prefs = await SharedPreferences.getInstance();

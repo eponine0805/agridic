@@ -4,13 +4,11 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'providers/app_state.dart';
 import 'providers/user_prefs.dart';
-import 'providers/connectivity_prefs.dart';
 import 'screens/home_screen.dart';
 import 'screens/post_create_screen.dart';
 import 'screens/dictionary_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/login_screen.dart';
-import 'screens/connectivity_settings_screen.dart';
 import 'screens/dict_download_screen.dart';
 import 'screens/admin_users_screen.dart';
 import 'screens/detail_screen.dart';
@@ -25,7 +23,6 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => UserPrefs()),
-        ChangeNotifierProvider(create: (_) => ConnectivityPrefs()),
         ChangeNotifierProvider(create: (_) => AppState()),
       ],
       child: const AgridicApp(),
@@ -73,7 +70,6 @@ class _StartupRouterState extends State<_StartupRouter> {
     if (!mounted) return;
 
     final userPrefs = context.read<UserPrefs>();
-    final connPrefs = context.read<ConnectivityPrefs>();
 
     // 1. Auth — require login
     if (!userPrefs.isLoggedIn) {
@@ -87,19 +83,7 @@ class _StartupRouterState extends State<_StartupRouter> {
       if (!mounted) return;
     }
 
-    // 2. Download settings (first run)
-    if (!connPrefs.setupDone) {
-      await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ChangeNotifierProvider.value(
-          value: connPrefs,
-          child: const ConnectivitySettingsScreen(isFirstRun: true),
-        ),
-        fullscreenDialog: true,
-      ));
-      if (!mounted) return;
-    }
-
-    // 3. Dictionary first download
+    // 2. Dictionary first download
     if (context.read<UserPrefs>().isLoggedIn &&
         !context.read<UserPrefs>().firstDownloadDone) {
       await Navigator.of(context).push(MaterialPageRoute(
@@ -230,26 +214,9 @@ class _MainShellState extends State<MainShell> {
                         seeded ? AppColors.primary : Colors.grey,
                     duration: const Duration(seconds: 3),
                   ));
-                } else if (value == 'settings') {
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => ChangeNotifierProvider.value(
-                      value: context.read<ConnectivityPrefs>(),
-                      child: const ConnectivitySettingsScreen(),
-                    ),
-                  ));
                 }
               },
               itemBuilder: (_) => [
-                const PopupMenuItem(
-                  value: 'settings',
-                  child: Row(
-                    children: [
-                      Icon(Icons.signal_cellular_alt_outlined, size: 18),
-                      SizedBox(width: 8),
-                      Text('Download settings'),
-                    ],
-                  ),
-                ),
                 if (userPrefs.isAdmin)
                   const PopupMenuItem(
                     value: 'seed',
@@ -489,19 +456,6 @@ class _ProfileScreenState extends State<_ProfileScreen> {
           const Divider(),
           const SizedBox(height: 8),
           _SettingsTile(
-            icon: Icons.signal_cellular_alt_outlined,
-            label: 'Download settings',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ChangeNotifierProvider.value(
-                  value: context.read<ConnectivityPrefs>(),
-                  child: const ConnectivitySettingsScreen(),
-                ),
-              ),
-            ),
-          ),
-          _SettingsTile(
             icon: Icons.menu_book_outlined,
             label: 'Re-download dictionary',
             onTap: () => Navigator.push(
@@ -514,37 +468,6 @@ class _ProfileScreenState extends State<_ProfileScreen> {
               ),
             ),
           ),
-          // ── Admin bootstrap ──────────────────────────
-          if (!isAdmin) ...[
-            const SizedBox(height: 12),
-            _SettingsTile(
-              icon: Icons.admin_panel_settings_outlined,
-              label: 'Claim admin (if no admin exists)',
-              labelColor: AppColors.textSecondary,
-              onTap: () async {
-                final claimed =
-                    await context.read<UserPrefs>().claimAdminIfNoneExists();
-                if (!context.mounted) return;
-                if (claimed) {
-                  await context.read<UserPrefs>().reloadRole();
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('You are now admin!'),
-                      backgroundColor: AppColors.primary,
-                    ),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                          'An admin already exists. Ask them to promote you.'),
-                    ),
-                  );
-                }
-              },
-            ),
-          ],
           // ── Admin Panel ──────────────────────────────
           if (isAdmin) ...[
             const SizedBox(height: 20),

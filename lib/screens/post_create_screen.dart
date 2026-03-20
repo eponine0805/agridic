@@ -199,7 +199,12 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           final urls = await FirebaseService.uploadImage(postId, _tweetImageFile!);
           imageLow = urls.low;
           imageHigh = urls.high;
-        } catch (_) {}
+        } catch (e) {
+          setState(() => _submitting = false);
+          if (!mounted) return;
+          _showError('Image upload failed: $e');
+          return;
+        }
       }
 
       await state.addPost(Post(
@@ -234,8 +239,16 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           try {
             final urls = await FirebaseService.uploadImage(
                 '${postId}_img_${block['id']}', block['file'] as XFile);
-            (block['ctrl'] as TextEditingController).text = urls.high;
-          } catch (_) {}
+            // high-res Storage URL を優先。Storage未設定時はbase64サムネイルを使用
+            (block['ctrl'] as TextEditingController).text =
+                urls.high.isNotEmpty ? urls.high : urls.low;
+          } catch (e) {
+            // ファイル読み込み失敗など予期しないエラーのみここに来る
+            setState(() => _submitting = false);
+            if (!mounted) return;
+            _showError('Image processing failed: $e');
+            return;
+          }
         }
       }
 
