@@ -93,6 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Crops',
             isExpanded: _cropsExpanded,
             isActive: _cropFilter.isNotEmpty,
+            selectedValue: _cropFilter.isNotEmpty ? _cropFilter : null,
             onTap: () =>
                 setState(() => _cropsExpanded = !_cropsExpanded),
             onClear: _cropFilter.isNotEmpty
@@ -764,6 +765,8 @@ class _FilterSectionHeader extends StatelessWidget {
   final bool isActive;
   final VoidCallback onTap;
   final VoidCallback? onClear;
+  /// 閉じている時に選択値をバッジ表示する（Crops 用）
+  final String? selectedValue;
 
   const _FilterSectionHeader({
     required this.label,
@@ -771,6 +774,7 @@ class _FilterSectionHeader extends StatelessWidget {
     required this.isActive,
     required this.onTap,
     this.onClear,
+    this.selectedValue,
   });
 
   @override
@@ -778,41 +782,75 @@ class _FilterSectionHeader extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Row(
-        children: [
-          Icon(
-            isExpanded ? Icons.expand_less : Icons.expand_more,
-            size: 16,
-            color: isActive ? AppColors.primary : AppColors.textSecondary,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isActive ? AppColors.primary : AppColors.textSecondary,
-            ),
-          ),
-          if (isActive) ...[
-            const SizedBox(width: 6),
-            Container(
-              width: 7,
-              height: 7,
-              decoration: const BoxDecoration(
-                color: AppColors.primary,
-                shape: BoxShape.circle,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          color: isExpanded
+              ? Colors.transparent
+              : (isActive
+                  ? AppColors.primary.withOpacity(0.07)
+                  : AppColors.background.withOpacity(0.6)),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          children: [
+            AnimatedRotation(
+              turns: isExpanded ? 0 : -0.25, // 0° open / -90° closed
+              duration: const Duration(milliseconds: 180),
+              child: Icon(
+                Icons.expand_less,
+                size: 18,
+                color: isActive ? AppColors.primary : AppColors.textSecondary,
               ),
             ),
-          ],
-          const Spacer(),
-          if (onClear != null)
-            GestureDetector(
-              onTap: onClear,
-              child: const Icon(Icons.close,
-                  size: 14, color: AppColors.textSecondary),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isActive ? AppColors.primary : AppColors.textSecondary,
+              ),
             ),
-        ],
+            // 閉じている & 選択中 → 選択値バッジを表示
+            if (!isExpanded && isActive && selectedValue != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  selectedValue!,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ] else if (isActive && isExpanded) ...[
+              const SizedBox(width: 6),
+              Container(
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+            const Spacer(),
+            if (onClear != null)
+              GestureDetector(
+                onTap: onClear,
+                child: const Icon(Icons.close,
+                    size: 14, color: AppColors.textSecondary),
+              ),
+          ],
+        ),
       ),
     );
   }
