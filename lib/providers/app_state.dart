@@ -194,20 +194,7 @@ class AppState extends ChangeNotifier {
     final post = idx >= 0 ? _posts[idx] : null;
     final alreadyLiked = post?.likedBy.contains(userId) ?? false;
 
-    await FirebaseService.toggleLike(postId, userId);
-
-    // いいね追加時に通知を作成（自分の投稿でない場合のみ）
-    if (!alreadyLiked && post != null && post.userId != userId) {
-      await FirebaseService.addNotification(
-        userId: post.userId,
-        type: 'like',
-        title: '$likerName がいいねしました',
-        body: post.content.textShort,
-        postId: postId,
-      );
-    }
-
-    // ローカルで楽観的更新（再取得不要）
+    // ローカルで楽観的更新（Firestore読み込み不要）
     if (idx >= 0) {
       final p = _posts[idx];
       if (alreadyLiked) {
@@ -219,6 +206,41 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
     }
+
+    await FirebaseService.toggleLike(postId, userId, alreadyLiked);
+
+    // いいね追加時に通知を作成（自分の投稿でない場合のみ）
+    if (!alreadyLiked && post != null && post.userId != userId) {
+      await FirebaseService.addNotification(
+        userId: post.userId,
+        type: 'like',
+        title: '$likerName がいいねしました',
+        body: post.content.textShort,
+        postId: postId,
+      );
+    }
+  }
+
+  /// 投稿をローカルリストから削除
+  void removePost(String postId) {
+    _posts.removeWhere((p) => p.postId == postId);
+    notifyListeners();
+  }
+
+  /// Firestoreから最新の投稿を取得してローカルを更新
+  Future<void> reloadPost(String postId) async {
+    try {
+      final updated = await FirebaseService.fetchPostById(postId);
+      if (updated == null) {
+        removePost(postId);
+        return;
+      }
+      final idx = _posts.indexWhere((p) => p.postId == postId);
+      if (idx >= 0) {
+        _posts[idx] = updated;
+        notifyListeners();
+      }
+    } catch (_) {}
   }
 
   /// 投稿を追加（オフライン時はキューに保存）

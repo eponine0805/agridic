@@ -201,7 +201,7 @@ class PostCard extends StatelessWidget {
                         } else if (v == 'delete') {
                           _confirmDelete(context);
                         } else if (v == 'star') {
-                          _toggleStar();
+                          _toggleStar(context);
                         }
                       },
                     ),
@@ -288,14 +288,20 @@ class PostCard extends StatelessWidget {
         ],
       ),
     );
-    if (confirmed == true) {
+    if (confirmed == true && context.mounted) {
       await FirebaseService.deletePost(post.postId);
+      if (context.mounted) {
+        context.read<AppState>().removePost(post.postId);
+      }
     }
   }
 
-  Future<void> _toggleStar() async {
+  Future<void> _toggleStar(BuildContext context) async {
     await FirebaseService.updatePost(
         post.postId, {'isOfficial': !post.isOfficial});
+    if (context.mounted) {
+      await context.read<AppState>().reloadPost(post.postId);
+    }
   }
 
   void _toggleDictionary(BuildContext context) {
@@ -582,6 +588,9 @@ class _DictConfigSheetState extends State<_DictConfigSheet> {
         postId: widget.post.postId,
       );
     }
+    if (!mounted) return;
+    // ローカル状態を最新化してカードを再描画
+    await context.read<AppState>().reloadPost(widget.post.postId);
     if (mounted) Navigator.of(context).pop();
   }
 

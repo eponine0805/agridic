@@ -79,14 +79,11 @@ class FirebaseService {
 
   // ─── いいね ──────────────────────────────────────────────────
 
-  /// いいねをトグル（済みなら解除、未なら追加）
-  static Future<void> toggleLike(String postId, String userId) async {
+  /// いいねをトグル（ローカルの既読状態を引数で受け取るためFirestore読み込み不要）
+  static Future<void> toggleLike(
+      String postId, String userId, bool alreadyLiked) async {
     final ref = _db.collection(_col).doc(postId);
-    final snap = await ref.get();
-    if (!snap.exists) return;
-    final data = snap.data()!;
-    final likedBy = List<String>.from(data['likedBy'] ?? []);
-    if (likedBy.contains(userId)) {
+    if (alreadyLiked) {
       await ref.update({
         'likedBy': FieldValue.arrayRemove([userId]),
         'likes': FieldValue.increment(-1),
@@ -97,6 +94,13 @@ class FirebaseService {
         'likes': FieldValue.increment(1),
       });
     }
+  }
+
+  /// 単一投稿をIDで取得
+  static Future<Post?> fetchPostById(String postId) async {
+    final snap = await _db.collection(_col).doc(postId).get();
+    if (!snap.exists) return null;
+    return Post.fromFirestore(snap);
   }
 
   // ─── 通報 ──────────────────────────────────────────────────
