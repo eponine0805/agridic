@@ -40,15 +40,6 @@ class UserPrefs extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _firstDownloadDone = prefs.getBool(_keyFirstLoginDone) ?? false;
 
-    // 全ユーザーをadminに昇格する一回限りのマイグレーション
-    final migrated = prefs.getBool('admin_migration_v1') ?? false;
-    if (!migrated) {
-      try {
-        await FirebaseService.promoteAllUsersToAdmin();
-        await prefs.setBool('admin_migration_v1', true);
-      } catch (_) {}
-    }
-
     _authSub = _auth.authStateChanges().listen((user) async {
       _user = user;
       if (user != null) {
@@ -99,17 +90,16 @@ class UserPrefs extends ChangeNotifier {
       final userCredential = await _auth.signInWithCredential(credential);
       final user = userCredential.user;
       if (user != null) {
-        // Ensure user document exists in Firestore
+        // Firestoreにユーザードキュメントがなければ作成（既存のロールは上書きしない）
         final doc = await _db.collection('users').doc(user.uid).get();
         if (!doc.exists) {
           await _db.collection('users').doc(user.uid).set({
-            'role': 'admin',
+            'role': 'farmer', // 新規ユーザーはfarmer。管理者が昇格する
             'userName':
                 user.displayName ?? user.email?.split('@').first ?? 'User',
             'email': user.email ?? '',
             'createdAt': FieldValue.serverTimestamp(),
           });
-          _role = 'admin';
         }
       }
       return null;
@@ -134,13 +124,12 @@ class UserPrefs extends ChangeNotifier {
           email: email.trim(), password: password);
       await cred.user?.updateDisplayName(userName.trim());
       await _db.collection('users').doc(cred.user!.uid).set({
-        'role': 'admin',
+        'role': 'farmer', // 新規ユーザーはfarmer。管理者が昇格する
         'userName': userName.trim(),
         'email': email.trim(),
         'createdAt': FieldValue.serverTimestamp(),
       });
-      // ロールを明示的に反映（authStateChanges との race condition を回避）
-      _role = 'admin';
+      _role = 'farmer';
       return null;
     } on FirebaseAuthException catch (e) {
       return e.message ?? 'Registration failed';

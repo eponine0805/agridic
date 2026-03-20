@@ -233,26 +233,46 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       if (crop.isNotEmpty) shortParts.add('[$crop]');
       if (loc.isNotEmpty) shortParts.add('— $loc');
 
-      final activeBlocks = _blocks[_activeMode]!;
-      for (final block in activeBlocks) {
-        if (block['type'] == 'image' && block['file'] != null) {
-          try {
-            final urls = await FirebaseService.uploadImage(
-                '${postId}_img_${block['id']}', block['file'] as XFile);
-            // high-res Storage URL を優先。Storage未設定時はbase64サムネイルを使用
-            (block['ctrl'] as TextEditingController).text =
-                urls.high.isNotEmpty ? urls.high : urls.low;
-          } catch (e) {
-            // ファイル読み込み失敗など予期しないエラーのみここに来る
-            setState(() => _submitting = false);
-            if (!mounted) return;
-            _showError('Image processing failed: $e');
-            return;
+      // 全モードの画像をアップロード
+      for (final mode in ['text', 'manual', 'visual']) {
+        for (final block in _blocks[mode]!) {
+          if (block['type'] == 'image' && block['file'] != null) {
+            try {
+              final urls = await FirebaseService.uploadImage(
+                  '${postId}_${mode}_img_${block['id']}', block['file'] as XFile);
+              (block['ctrl'] as TextEditingController).text =
+                  urls.high.isNotEmpty ? urls.high : urls.low;
+            } catch (e) {
+              setState(() => _submitting = false);
+              if (!mounted) return;
+              _showError('Image processing failed: $e');
+              return;
+            }
           }
         }
       }
 
-      final (tf, imgs, steps) = _blocksToText(activeBlocks);
+      // 各モードのブロックをテキストに変換し、それぞれのフィールドに保存
+      String textFull = '', textFullManual = '', textFullVisual = '';
+      List<String> imgs = [], steps = [];
+
+      if (_blocks['text']!.isNotEmpty) {
+        final (tf, _, st) = _blocksToText(_blocks['text']!);
+        textFull = tf;
+        if (st.isNotEmpty) steps = st;
+      }
+      if (_blocks['manual']!.isNotEmpty) {
+        final (tf, im, st) = _blocksToText(_blocks['manual']!);
+        textFullManual = tf;
+        if (im.isNotEmpty) imgs = im;
+        if (st.isNotEmpty && steps.isEmpty) steps = st;
+      }
+      if (_blocks['visual']!.isNotEmpty) {
+        final (tf, im, st) = _blocksToText(_blocks['visual']!);
+        textFullVisual = tf;
+        if (im.isNotEmpty && imgs.isEmpty) imgs = im;
+        if (st.isNotEmpty && steps.isEmpty) steps = st;
+      }
 
       await state.addPost(Post(
         postId: postId,
@@ -262,7 +282,9 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         userName: userPrefs.userName,
         content: PostContent(
           textShort: shortParts.join(' '),
-          textFull: tf,
+          textFull: textFull,
+          textFullManual: textFullManual,
+          textFullVisual: textFullVisual,
           steps: steps,
           images: imgs,
         ),
@@ -727,7 +749,9 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           _insertBtn(Icons.text_fields, 'Text', () => _addBlock('text', afterId: afterId)),
           _insertBtn(Icons.format_list_bulleted, 'Bullets', () => _addBlock('bullets', afterId: afterId)),
           _insertBtn(Icons.checklist_rtl, 'Action Plan', () => _addBlock('action_plan', afterId: afterId)),
-          _insertBtn(Icons.image_outlined, 'Image', () => _addBlock('image', afterId: afterId)),
+          // テキストモードでは画像ブロック不可
+          if (_activeMode != 'text')
+            _insertBtn(Icons.image_outlined, 'Image', () => _addBlock('image', afterId: afterId)),
         ],
       ),
     );
