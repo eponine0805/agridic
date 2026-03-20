@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
 import '../services/firebase_service.dart';
 import '../services/offline_queue_service.dart';
@@ -52,7 +53,48 @@ class AppState extends ChangeNotifier {
     if (items.isEmpty) return;
     for (final data in items) {
       try {
-        final post = Post.fromMap(data);
+        // 新フォーマット: {'post': {...}, 'localTweetImagePath': '...'}
+        // 旧フォーマット: 直接 postJson（後方互換）
+        final bool isNewFormat = data.containsKey('post');
+        final postData = isNewFormat
+            ? (data['post'] as Map<String, dynamic>)
+            : data;
+        var post = Post.fromMap(postData);
+
+        // ツイート画像のローカルパスがあればアップロード
+        final tweetImagePath = data['localTweetImagePath'] as String?;
+        if (tweetImagePath != null) {
+          try {
+            final urls = await FirebaseService.uploadImage(
+                post.postId, XFile(tweetImagePath));
+            post = _rebuildPost(
+              post,
+              _contentWith(post.content,
+                  imageLow: urls.low, imageHigh: urls.high),
+            );
+          } catch (_) {}
+        }
+
+        // レポートのブロック画像（content.images にローカルパスが入っている場合）
+        if (post.content.images.any((img) => !img.startsWith('http'))) {
+          final updated = <String>[];
+          for (var i = 0; i < post.content.images.length; i++) {
+            final img = post.content.images[i];
+            if (!img.startsWith('http')) {
+              try {
+                final urls = await FirebaseService.uploadImage(
+                    '${post.postId}_img_$i', XFile(img));
+                updated.add(urls.high.isNotEmpty ? urls.high : urls.low);
+              } catch (_) {
+                updated.add(''); // アップロード失敗は空URLで保存
+              }
+            } else {
+              updated.add(img);
+            }
+          }
+          post = _rebuildPost(post, _contentWith(post.content, images: updated));
+        }
+
         await FirebaseService.savePost(post);
       } catch (_) {}
     }
@@ -61,6 +103,43 @@ class AppState extends ChangeNotifier {
     // 投稿反映のためリフレッシュ
     await _loadInitial();
   }
+
+  /// Post を新しい PostContent で再生成するヘルパー
+  Post _rebuildPost(Post post, PostContent content) => Post(
+        postId: post.postId,
+        userId: post.userId,
+        isOfficial: post.isOfficial,
+        userRole: post.userRole,
+        userName: post.userName,
+        content: content,
+        location: post.location,
+        timestamp: post.timestamp,
+        isVerified: post.isVerified,
+        reports: post.reports,
+        isHidden: post.isHidden,
+        likes: post.likes,
+        likedBy: post.likedBy,
+        distanceKm: post.distanceKm,
+        viewMode: post.viewMode,
+        dictCrop: post.dictCrop,
+        dictCategory: post.dictCategory,
+        dictTags: post.dictTags,
+        inDictionary: post.inDictionary,
+      );
+
+  /// PostContent の一部フィールドだけ差し替えるヘルパー
+  PostContent _contentWith(PostContent c,
+          {String? imageLow, String? imageHigh, List<String>? images}) =>
+      PostContent(
+        textShort: c.textShort,
+        textFull: c.textFull,
+        textFullManual: c.textFullManual,
+        textFullVisual: c.textFullVisual,
+        steps: c.steps,
+        imageLow: imageLow ?? c.imageLow,
+        imageHigh: imageHigh ?? c.imageHigh,
+        images: images ?? c.images,
+      );
 
   List<Post> get posts => _posts;
 
@@ -253,9 +332,12 @@ class AppState extends ChangeNotifier {
   }
 
   /// 投稿を追加（オフライン時はキューに保存）
-  Future<bool> addPost(Post post) async {
+  /// [localTweetImagePath]: オフライン時の添付画像ローカルパス。
+  ///   オンライン復帰時に自動アップロードされる。
+  Future<bool> addPost(Post post, {String? localTweetImagePath}) async {
     if (!isOnline) {
-      await OfflineQueueService.enqueue(post);
+      await OfflineQueueService.enqueue(post,
+          localTweetImagePath: localTweetImagePath);
       pendingQueueCount = await OfflineQueueService.count();
       notifyListeners();
       return false; // オフラインキューに保存

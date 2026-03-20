@@ -8,16 +8,23 @@ class OfflineQueueService {
   static const _key = 'offline_post_queue';
 
   /// キューに投稿を追加
-  static Future<void> enqueue(Post post) async {
+  /// [localTweetImagePath] : ツイート型の添付画像ローカルパス（オフライン時）
+  static Future<void> enqueue(Post post, {String? localTweetImagePath}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
     final List<dynamic> queue =
         raw != null ? jsonDecode(raw) as List<dynamic> : [];
-    queue.add(post.toJson());
+    final entry = <String, dynamic>{'post': post.toJson()};
+    if (localTweetImagePath != null) {
+      entry['localTweetImagePath'] = localTweetImagePath;
+    }
+    queue.add(entry);
     await prefs.setString(_key, jsonEncode(queue));
   }
 
-  /// キューの全投稿を取得
+  /// キューの全エントリを取得
+  /// 各エントリは {'post': {...}, 'localTweetImagePath': '...'} の形式
+  /// （旧フォーマットの直接 postJson も後方互換で返す）
   static Future<List<Map<String, dynamic>>> getAll() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);

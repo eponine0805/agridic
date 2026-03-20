@@ -104,29 +104,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   // ─── Image ─────────────────────────────────────────────────────────────
 
   Future<void> _pickTweetImage() async {
-    final state = context.read<AppState>();
-    if (!state.isOnline) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('オフライン中は画像を添付できません。テキストのみ投稿できます。'),
-        backgroundColor: AppColors.accent,
-        duration: Duration(seconds: 3),
-      ));
-      return;
-    }
     final file = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (file != null) setState(() => _tweetImageFile = file);
   }
 
   Future<void> _pickBlockImage(int blockId) async {
-    final state = context.read<AppState>();
-    if (!state.isOnline) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('オフライン中は画像を添付できません。テキストのみ投稿できます。'),
-        backgroundColor: AppColors.accent,
-        duration: Duration(seconds: 3),
-      ));
-      return;
-    }
     final file = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (file != null) {
       setState(() {
@@ -135,36 +117,6 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         block['ctrl'].text = file.name;
       });
     }
-  }
-
-  /// オフライン時に画像が添付されている場合、確認ダイアログを表示する
-  /// true = 画像なしで続行、false = キャンセル
-  Future<bool> _confirmOfflineWithImage() async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('オフライン — 画像は添付できません'),
-        content: const Text(
-          'ネットワークに接続されていないため、画像はアップロードできません。\n\n'
-          '画像なしでテキストのみ投稿しますか？\n（接続後に自動送信されます）',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accent,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('画像なしで投稿'),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
   }
 
   // ─── Blocks → text ─────────────────────────────────────────────────────
@@ -239,17 +191,10 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
     if (_postType == 'tweet') {
       if (_tweetTextCtrl.text.trim().isEmpty) { _showError('Please enter some text.'); return; }
-
-      // オフライン かつ 画像あり → 確認ダイアログ
-      if (!state.isOnline && _tweetImageFile != null) {
-        final proceed = await _confirmOfflineWithImage();
-        if (!mounted || !proceed) return;
-        setState(() => _tweetImageFile = null);
-      }
-
       setState(() => _submitting = true);
 
       String imageLow = '', imageHigh = '';
+      // オンライン時のみ即時アップロード。オフライン時はローカルパスをキューに渡す。
       if (_tweetImageFile != null && state.isOnline) {
         try {
           final urls = await FirebaseService.uploadImage(postId, _tweetImageFile!);
@@ -263,38 +208,28 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         }
       }
 
-      await state.addPost(Post(
-        postId: postId,
-        userId: userPrefs.userId,
-        isOfficial: false,
-        userRole: userPrefs.userRole,
-        userName: userPrefs.userName,
-        content: PostContent(
-          textShort: _tweetTextCtrl.text.trim(),
-          imageLow: imageLow,
-          imageHigh: imageHigh,
+      await state.addPost(
+        Post(
+          postId: postId,
+          userId: userPrefs.userId,
+          isOfficial: false,
+          userRole: userPrefs.userRole,
+          userName: userPrefs.userName,
+          content: PostContent(
+            textShort: _tweetTextCtrl.text.trim(),
+            imageLow: imageLow,
+            imageHigh: imageHigh,
+          ),
+          timestamp: DateTime.now(),
+          location: _resolvedLocation,
+          dictTags: _tags,
         ),
-        timestamp: DateTime.now(),
-        location: _resolvedLocation,
-        dictTags: _tags,
-      ));
+        // オフライン時: ローカルパスを渡す → オンライン復帰時に自動アップロード
+        localTweetImagePath:
+            (!state.isOnline && _tweetImageFile != null) ? _tweetImageFile!.path : null,
+      );
     } else {
       if (_rptTitleCtrl.text.trim().isEmpty) { _showError('Please enter a headline.'); return; }
-
-      // オフライン かつ 画像ブロックあり → 確認ダイアログ
-      final hasImages = ['text', 'manual', 'visual']
-          .any((m) => _blocks[m]!.any((b) => b['type'] == 'image' && b['file'] != null));
-      if (!state.isOnline && hasImages) {
-        final proceed = await _confirmOfflineWithImage();
-        if (!mounted || !proceed) return;
-        // 画像ブロックのファイルを削除
-        for (final m in ['text', 'manual', 'visual']) {
-          for (final b in _blocks[m]!) {
-            if (b['type'] == 'image') b.remove('file');
-          }
-        }
-      }
-
       setState(() => _submitting = true);
 
       final headline = _rptTitleCtrl.text.trim();
@@ -304,11 +239,13 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       if (crop.isNotEmpty) shortParts.add('[$crop]');
       if (loc.isNotEmpty) shortParts.add('— $loc');
 
-      // 全モードの画像をアップロード（オンライン時のみ）
-      if (state.isOnline) {
-        for (final mode in ['text', 'manual', 'visual']) {
-          for (final block in _blocks[mode]!) {
-            if (block['type'] == 'image' && block['file'] != null) {
+      // 全モードの画像を処理
+      // オンライン: Firebase Storage にアップロードして URL をセット
+      // オフライン: ローカルパスをそのままセット → キュー保存後、復帰時に自動アップロード
+      for (final mode in ['text', 'manual', 'visual']) {
+        for (final block in _blocks[mode]!) {
+          if (block['type'] == 'image' && block['file'] != null) {
+            if (state.isOnline) {
               try {
                 final urls = await FirebaseService.uploadImage(
                     '${postId}_${mode}_img_${block['id']}', block['file'] as XFile);
@@ -320,6 +257,10 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                 _showError('Image processing failed: $e');
                 return;
               }
+            } else {
+              // オフライン: ローカルパスを ctrl に入れておく
+              (block['ctrl'] as TextEditingController).text =
+                  (block['file'] as XFile).path;
             }
           }
         }
