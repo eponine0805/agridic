@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
+import '../services/dict_local_service.dart';
 import '../utils/app_colors.dart';
 import '../widgets/post_card.dart';
 import 'detail_screen.dart';
@@ -19,6 +20,11 @@ class _HomeScreenState extends State<HomeScreen> {
   String _sortOption = 'newest';
 
   final _scrollCtrl = ScrollController();
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  // ローカルキャッシュ（辞書ダウンロード済みデータ）
+  List<Post> _dictCache = [];
 
   static const _crops = ['', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
   static const _cropLabels = ['All', 'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee'];
@@ -27,12 +33,21 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
+    _loadDictCache();
+  }
+
+  Future<void> _loadDictCache() async {
+    final result = await DictLocalService.load();
+    if (result.posts.isNotEmpty && mounted) {
+      setState(() => _dictCache = result.posts);
+    }
   }
 
   @override
   void dispose() {
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -102,6 +117,39 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Column(
             children: [
+              // Search bar
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchCtrl,
+                      onChanged: (v) =>
+                          setState(() => _searchQuery = v.trim().toLowerCase()),
+                      decoration: InputDecoration(
+                        hintText: 'Search official guides…',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(25),
+                            borderSide: BorderSide.none),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
               // Filter chips + sort button
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -182,10 +230,116 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         Expanded(
-          child: Consumer<AppState>(
-            builder: (context, state, _) => _buildFeed(state),
+          child: _searchQuery.isNotEmpty
+              ? _buildDictResults()
+              : Consumer<AppState>(
+                  builder: (context, state, _) => _buildFeed(state),
+                ),
+        ),
+      ],
+    );
+  }
+
+  /// ローカルキャッシュに対してファジー検索（Firestoreへの読み取り0回）
+  Widget _buildDictResults() {
+    if (_dictCache.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.download_outlined,
+                size: 40, color: AppColors.textSecondary),
+            const SizedBox(height: 8),
+            const Text('Dictionary not downloaded yet',
+                style: TextStyle(color: AppColors.textSecondary)),
+            const SizedBox(height: 4),
+            const Text('Go to the Dictionary tab to download guides for offline use',
+                style: TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary),
+                textAlign: TextAlign.center),
+          ],
+        ),
+      );
+    }
+
+    final tokens = _searchQuery
+        .split(RegExp(r'\s+'))
+        .where((t) => t.length >= 2)
+        .toList();
+
+    List<Post> results;
+    if (tokens.isEmpty) {
+      results = _dictCache.where((p) {
+        final s = '${p.content.textShort} ${p.content.textFull} '
+            '${p.dictCrop} ${p.dictCategory} ${p.dictTags.join(' ')}'
+            .toLowerCase();
+        return s.contains(_searchQuery);
+      }).toList();
+    } else {
+      final scored = <({Post post, double score})>[];
+      for (final p in _dictCache) {
+        final s = [
+          p.content.textShort,
+          p.content.textFull,
+          p.dictCrop,
+          p.dictCategory,
+          ...p.dictTags,
+        ].join(' ').toLowerCase();
+        final words =
+            RegExp(r'\w+').allMatches(s).map((m) => m.group(0)!).toList();
+        double score = 0;
+        for (final token in tokens) {
+          if (s.contains(token)) {
+            score += 2.0;
+          } else if (token.length >= 3 &&
+              words.any((w) => w.startsWith(token))) {
+            score += 1.5;
+          } else if (token.length >= 4 &&
+              s.contains(token.substring(0, token.length - 1))) {
+            score += 0.8;
+          }
+        }
+        if (score > 0) scored.add((post: p, score: score));
+      }
+      scored.sort((a, b) => b.score.compareTo(a.score));
+      results = scored.map((e) => e.post).toList();
+    }
+
+    if (results.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.search_off,
+                size: 40, color: AppColors.textSecondary),
+            const SizedBox(height: 8),
+            Text('No guides found for "$_searchQuery"',
+                style: const TextStyle(color: AppColors.textSecondary)),
+            const SizedBox(height: 4),
+            const Text('Try a different keyword',
+                style:
+                    TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            '⭐ ${results.length} official guide${results.length == 1 ? '' : 's'} found',
+            style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.primary,
+                fontWeight: FontWeight.w600),
           ),
         ),
+        ...results.map((p) => _DictResultTile(
+              post: p,
+              onTap: () => _openDetail(context, p),
+            )),
       ],
     );
   }
@@ -273,6 +427,114 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => DetailScreen(post: post)),
+    );
+  }
+}
+
+class _DictResultTile extends StatelessWidget {
+  final Post post;
+  final VoidCallback onTap;
+  const _DictResultTile({required this.post, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(
+            left: const BorderSide(color: AppColors.primary, width: 4),
+            right:
+                BorderSide(color: AppColors.primary.withOpacity(0.2)),
+            bottom:
+                BorderSide(color: AppColors.primary.withOpacity(0.2)),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withOpacity(0.06),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.star,
+                      color: AppColors.verifiedGold, size: 13),
+                  const SizedBox(width: 4),
+                  const Text('Official Guide',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.verifiedGold,
+                          fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 8),
+                  if (post.dictCrop.isNotEmpty)
+                    _Tag(post.dictCrop),
+                  if (post.dictCategory.isNotEmpty) ...[
+                    const SizedBox(width: 4),
+                    _Tag(post.dictCategory),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                post.content.textShort,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 14),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(post.userName,
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textSecondary)),
+                  const Row(
+                    children: [
+                      Text('Read more',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600)),
+                      SizedBox(width: 2),
+                      Icon(Icons.arrow_forward_ios,
+                          size: 10, color: AppColors.primary),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  final String label;
+  const _Tag(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.modeActive,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+      ),
+      child: Text(label,
+          style: const TextStyle(fontSize: 10, color: AppColors.primaryDark)),
     );
   }
 }
