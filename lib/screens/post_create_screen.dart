@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
 import '../providers/user_prefs.dart';
+import '../services/dict_local_service.dart';
 import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
 
@@ -37,6 +38,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   // Shared tags
   final List<String> _tags = [];
   final _tagCtrl = TextEditingController();
+  List<String> _availableTags = [];
 
   // Block lists per mode
   final Map<String, List<Map<String, dynamic>>> _blocks = {
@@ -45,6 +47,24 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     'visual': [],
   };
   int _blockCounter = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvailableTags();
+  }
+
+  Future<void> _loadAvailableTags() async {
+    final result = await DictLocalService.load();
+    if (result.posts.isNotEmpty && mounted) {
+      final tags = result.posts
+          .expand((p) => p.dictTags)
+          .toSet()
+          .toList()
+        ..sort();
+      setState(() => _availableTags = tags);
+    }
+  }
 
   @override
   void dispose() {
@@ -552,26 +572,85 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           ),
           const SizedBox(height: 6),
         ],
-        Row(children: [
-          Expanded(
-            child: TextField(
-              controller: _tagCtrl,
-              decoration: InputDecoration(
-                hintText: 'Add keyword + Enter  (e.g. maize, stem borer…)',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                hintStyle: const TextStyle(fontSize: 12),
-                isDense: true,
+        RawAutocomplete<String>(
+          textEditingController: _tagCtrl,
+          focusNode: FocusNode(),
+          optionsBuilder: (textEditingValue) {
+            final input = textEditingValue.text.trim().toLowerCase();
+            if (input.isEmpty) return const [];
+            return _availableTags
+                .where((tag) =>
+                    tag.contains(input) &&
+                    !_tags.contains(tag))
+                .take(6);
+          },
+          onSelected: (tag) {
+            if (!_tags.contains(tag)) {
+              setState(() {
+                _tags.add(tag);
+                _tagCtrl.clear();
+              });
+            }
+          },
+          fieldViewBuilder: (context, ctrl, focusNode, onSubmitted) {
+            return Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: ctrl,
+                  focusNode: focusNode,
+                  decoration: InputDecoration(
+                    hintText: 'Add keyword + Enter  (e.g. maize, stem borer…)',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    hintStyle: const TextStyle(fontSize: 12),
+                    isDense: true,
+                  ),
+                  onSubmitted: (_) => _addTag(),
+                ),
               ),
-              onSubmitted: (_) => _addTag(),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add, size: 18, color: AppColors.primary),
-            onPressed: _addTag,
-            visualDensity: VisualDensity.compact,
-          ),
-        ]),
+              IconButton(
+                icon: const Icon(Icons.add, size: 18, color: AppColors.primary),
+                onPressed: _addTag,
+                visualDensity: VisualDensity.compact,
+              ),
+            ]);
+          },
+          optionsViewBuilder: (context, onSelected, options) {
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(8),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  child: ListView(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    children: options
+                        .map((tag) => InkWell(
+                              onTap: () => onSelected(tag),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 10),
+                                child: Row(children: [
+                                  const Icon(Icons.label_outline,
+                                      size: 14,
+                                      color: AppColors.textSecondary),
+                                  const SizedBox(width: 8),
+                                  Text(tag,
+                                      style: const TextStyle(fontSize: 13)),
+                                ]),
+                              ),
+                            ))
+                        .toList(),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ],
     );
   }

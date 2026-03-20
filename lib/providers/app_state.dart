@@ -245,11 +245,16 @@ class AppState extends ChangeNotifier {
     String crop = '',
     String type = 'all',
     String sort = 'newest',
+    String category = '',
   }) {
     var result = visiblePosts.toList();
 
     if (crop.isNotEmpty) {
       result = result.where((p) => p.dictCrop == crop).toList();
+    }
+
+    if (category.isNotEmpty) {
+      result = result.where((p) => p.dictCategory == category).toList();
     }
 
     if (type == 'official') {
