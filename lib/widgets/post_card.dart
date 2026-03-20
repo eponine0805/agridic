@@ -8,7 +8,7 @@ import '../providers/app_state.dart';
 import '../providers/user_prefs.dart';
 import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
-import '../screens/comment_sheet.dart';
+import '../screens/user_posts_screen.dart';
 
 class PostCard extends StatelessWidget {
   final Post post;
@@ -54,7 +54,18 @@ class PostCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _Avatar(post: post),
+                  GestureDetector(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => UserPostsScreen(
+                          userId: post.userId,
+                          userName: post.userName,
+                        ),
+                      ),
+                    ),
+                    child: _Avatar(post: post),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
@@ -190,7 +201,7 @@ class PostCard extends StatelessWidget {
                         } else if (v == 'delete') {
                           _confirmDelete(context);
                         } else if (v == 'star') {
-                          _toggleStar();
+                          _toggleStar(context);
                         }
                       },
                     ),
@@ -240,19 +251,12 @@ class PostCard extends StatelessWidget {
               Row(
                 children: [
                   _ActionBtn(
-                    icon: Icons.chat_bubble_outline,
-                    label: '',
-                    color: AppColors.textSecondary,
-                    onTap: () => _openComments(context),
-                  ),
-                  const SizedBox(width: 4),
-                  _ActionBtn(
                     icon: isLiked ? Icons.favorite : Icons.favorite_border,
                     label: post.likes > 0 ? '${post.likes}' : '',
                     color:
                         isLiked ? AppColors.danger : AppColors.textSecondary,
-                    onTap: () =>
-                        state.toggleLike(post.postId, userPrefs.userId),
+                    onTap: () => state.toggleLike(
+                        post.postId, userPrefs.userId, userPrefs.userName),
                   ),
                 ],
               ),
@@ -284,14 +288,20 @@ class PostCard extends StatelessWidget {
         ],
       ),
     );
-    if (confirmed == true) {
+    if (confirmed == true && context.mounted) {
       await FirebaseService.deletePost(post.postId);
+      if (context.mounted) {
+        context.read<AppState>().removePost(post.postId);
+      }
     }
   }
 
-  Future<void> _toggleStar() async {
+  Future<void> _toggleStar(BuildContext context) async {
     await FirebaseService.updatePost(
         post.postId, {'isOfficial': !post.isOfficial});
+    if (context.mounted) {
+      await context.read<AppState>().reloadPost(post.postId);
+    }
   }
 
   void _toggleDictionary(BuildContext context) {
@@ -304,21 +314,6 @@ class PostCard extends StatelessWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _DictConfigSheet(post: post),
-    );
-  }
-
-  void _openComments(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => MultiProvider(
-        providers: [
-          ChangeNotifierProvider.value(value: context.read<AppState>()),
-          ChangeNotifierProvider.value(value: context.read<UserPrefs>()),
-        ],
-        child: CommentSheet(post: post),
-      ),
     );
   }
 
@@ -448,7 +443,8 @@ class _Thumbnail extends StatelessWidget {
             errorBuilder: (_, __, ___) => const SizedBox.shrink(),
           ),
         );
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[PostCard] base64 decode failed: $e');
         return const SizedBox.shrink();
       }
     }
@@ -582,6 +578,9 @@ class _DictConfigSheetState extends State<_DictConfigSheet> {
       'dictTags': _tags,
       'isOfficial': _inDictionary ? true : widget.post.isOfficial,
     });
+    if (!mounted) return;
+    // ローカル状態を最新化してカードを再描画
+    await context.read<AppState>().reloadPost(widget.post.postId);
     if (mounted) Navigator.of(context).pop();
   }
 

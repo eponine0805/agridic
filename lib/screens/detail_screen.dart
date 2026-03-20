@@ -292,7 +292,8 @@ class _DetailScreenState extends State<DetailScreen> {
             errorBuilder: (_, __, ___) => const SizedBox.shrink(),
           ),
         );
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[DetailScreen] base64 decode failed: $e');
         return const SizedBox.shrink();
       }
     }

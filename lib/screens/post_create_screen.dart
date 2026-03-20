@@ -53,6 +53,12 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     _rptCropCtrl.dispose();
     _rptLocationCtrl.dispose();
     _tagCtrl.dispose();
+    // 全ブロックの TextEditingController を dispose
+    for (final blocks in _blocks.values) {
+      for (final block in blocks) {
+        (block['ctrl'] as TextEditingController).dispose();
+      }
+    }
     super.dispose();
   }
 
@@ -85,8 +91,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     });
   }
 
-  void _removeBlock(int id) =>
-      setState(() => _currentBlocks.removeWhere((b) => b['id'] == id));
+  void _removeBlock(int id) {
+    final block = _currentBlocks.firstWhere((b) => b['id'] == id);
+    (block['ctrl'] as TextEditingController).dispose();
+    setState(() => _currentBlocks.removeWhere((b) => b['id'] == id));
+  }
 
   void _moveBlock(int id, int direction) {
     final blocks = _currentBlocks;
@@ -194,7 +203,8 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       setState(() => _submitting = true);
 
       String imageLow = '', imageHigh = '';
-      if (_tweetImageFile != null) {
+      // オンライン時のみ即時アップロード。オフライン時はローカルパスをキューに渡す。
+      if (_tweetImageFile != null && state.isOnline) {
         try {
           final urls = await FirebaseService.uploadImage(postId, _tweetImageFile!);
           imageLow = urls.low;
@@ -207,21 +217,26 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         }
       }
 
-      await state.addPost(Post(
-        postId: postId,
-        userId: userPrefs.userId,
-        isOfficial: false,
-        userRole: userPrefs.userRole,
-        userName: userPrefs.userName,
-        content: PostContent(
-          textShort: _tweetTextCtrl.text.trim(),
-          imageLow: imageLow,
-          imageHigh: imageHigh,
+      await state.addPost(
+        Post(
+          postId: postId,
+          userId: userPrefs.userId,
+          isOfficial: false,
+          userRole: userPrefs.userRole,
+          userName: userPrefs.userName,
+          content: PostContent(
+            textShort: _tweetTextCtrl.text.trim(),
+            imageLow: imageLow,
+            imageHigh: imageHigh,
+          ),
+          timestamp: DateTime.now(),
+          location: _resolvedLocation,
+          dictTags: _tags,
         ),
-        timestamp: DateTime.now(),
-        location: _resolvedLocation,
-        dictTags: _tags,
-      ));
+        // オフライン時: ローカルパスを渡す → オンライン復帰時に自動アップロード
+        localTweetImagePath:
+            (!state.isOnline && _tweetImageFile != null) ? _tweetImageFile!.path : null,
+      );
     } else {
       if (_rptTitleCtrl.text.trim().isEmpty) { _showError('Please enter a headline.'); return; }
       setState(() => _submitting = true);
@@ -233,20 +248,28 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       if (crop.isNotEmpty) shortParts.add('[$crop]');
       if (loc.isNotEmpty) shortParts.add('— $loc');
 
-      // 全モードの画像をアップロード
+      // 全モードの画像を処理
+      // オンライン: Firebase Storage にアップロードして URL をセット
+      // オフライン: ローカルパスをそのままセット → キュー保存後、復帰時に自動アップロード
       for (final mode in ['text', 'manual', 'visual']) {
         for (final block in _blocks[mode]!) {
           if (block['type'] == 'image' && block['file'] != null) {
-            try {
-              final urls = await FirebaseService.uploadImage(
-                  '${postId}_${mode}_img_${block['id']}', block['file'] as XFile);
+            if (state.isOnline) {
+              try {
+                final urls = await FirebaseService.uploadImage(
+                    '${postId}_${mode}_img_${block['id']}', block['file'] as XFile);
+                (block['ctrl'] as TextEditingController).text =
+                    urls.high.isNotEmpty ? urls.high : urls.low;
+              } catch (e) {
+                setState(() => _submitting = false);
+                if (!mounted) return;
+                _showError('Image processing failed: $e');
+                return;
+              }
+            } else {
+              // オフライン: ローカルパスを ctrl に入れておく
               (block['ctrl'] as TextEditingController).text =
-                  urls.high.isNotEmpty ? urls.high : urls.low;
-            } catch (e) {
-              setState(() => _submitting = false);
-              if (!mounted) return;
-              _showError('Image processing failed: $e');
-              return;
+                  (block['file'] as XFile).path;
             }
           }
         }
@@ -300,15 +323,25 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     setState(() => _submitting = false);
     if (!mounted) return;
     Navigator.pop(context);
+    final isOnline = state.isOnline;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Row(children: [
-        const Icon(Icons.check_circle, color: Colors.white, size: 18),
+        Icon(
+          isOnline ? Icons.check_circle : Icons.cloud_queue,
+          color: Colors.white,
+          size: 18,
+        ),
         const SizedBox(width: 8),
-        Text(_postType == 'tweet' ? 'Post shared!' : 'Report published!',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+        Text(
+          isOnline
+              ? (_postType == 'tweet' ? 'Post shared!' : 'Report published!')
+              : 'Saved offline — will post when connected',
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.w500),
+        ),
       ]),
-      backgroundColor: AppColors.primary,
-      duration: const Duration(seconds: 2),
+      backgroundColor: isOnline ? AppColors.primary : AppColors.accent,
+      duration: const Duration(seconds: 3),
     ));
   }
 

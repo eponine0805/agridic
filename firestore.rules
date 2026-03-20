@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── ヘルパー関数 ────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function isExpert() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['expert', 'admin'];
+    }
+
+    // ─── 投稿 (posts) ────────────────────────────────────────────
+    match /posts/{postId} {
+      // 誰でも読み取り可（非表示は UI 側でフィルタ済み）
+      allow read: if true;
+
+      // 新規投稿: 認証済みユーザー、かつ userId が自分
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+
+      // 更新: 投稿者本人 or expert/admin
+      // ただし isHidden / reports / isOfficial / inDictionary は expert/admin のみ
+      allow update: if isOwner(resource.data.userId)
+          && !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['isHidden', 'reports', 'isOfficial', 'inDictionary', 'dictCrop', 'dictCategory', 'dictTags'])
+        || isExpert();
+
+      // 削除: 投稿者本人 or admin
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+
+      // 通報サブコレクション
+      match /reporters/{userId} {
+        allow read: if isAdmin();
+        allow create: if isOwner(userId);
+        allow delete: if isAdmin();
+      }
+    }
+
+    // ─── ユーザー (users) ────────────────────────────────────────
+    match /users/{userId} {
+      // 自分のドキュメントは読み取り可、admin は全員読み取り可
+      allow read: if isOwner(userId) || isAdmin();
+
+      // 作成: 本人のみ（初回登録時）
+      allow create: if isOwner(userId)
+        // role は farmer のみ許可（admin/expert は付与不可）
+        && request.resource.data.role == 'farmer';
+
+      // 更新: 本人は role 以外のフィールドを変更可
+      //       admin は全フィールド変更可（role の昇格含む）
+      allow update: if isOwner(userId)
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+        || isAdmin();
+
+      allow delete: if isAdmin();
+
+      // FCM トークン（users/{uid}/tokens/{token}）
+      match /tokens/{tokenId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // ─── 通知 (notifications) ────────────────────────────────────
+    match /notifications/{userId}/items/{itemId} {
+      // 自分宛の通知のみ読み取り可
+      allow read: if isOwner(userId);
+
+      // 書き込みはサーバーサイド（Cloud Functions）のみ
+      // クライアントから直接書き込み不可
+      allow create: if false;
+
+      // 既読フラグ更新（isRead のみ）は本人可
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+
+      allow delete: if isOwner(userId);
+    }
+
+    // ─── ブロードキャスト (broadcasts) ─────────────────────────
+    match /broadcasts/{docId} {
+      // 認証済みユーザーなら読み取り可
+      allow read: if isSignedIn();
+
+      // 作成・更新・削除は admin のみ
+      allow write: if isAdmin();
+    }
+
+    // ─── その他のコレクションはデフォルト拒否 ──────────────────
+  }
+}

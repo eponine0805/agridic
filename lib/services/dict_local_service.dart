@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/post.dart';
 
@@ -48,7 +49,8 @@ class DictLocalService {
         mode = (meta['mode'] as int?) ?? 0;
       }
       return (posts: posts, savedAt: savedAt, mode: mode);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[DictLocalService] failed to load cache: $e');
       return (posts: <Post>[], savedAt: null, mode: 0);
     }
   }

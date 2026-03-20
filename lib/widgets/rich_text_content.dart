@@ -72,7 +72,8 @@ class RichTextContent extends StatelessWidget {
             final imgPath = images[idx];
             result.add(_buildNetworkImage(imgPath, highRes: useHighRes));
           }
-        } catch (_) {
+        } catch (e) {
+          debugPrint('[RichTextContent] image marker parse failed: $e');
           result.add(Text(stripped, style: const TextStyle(fontSize: 14, color: AppColors.textPrimary)));
         }
       } else if (stripped.startsWith('- ')) {
@@ -122,7 +123,8 @@ class RichTextContent extends StatelessWidget {
             ),
           ),
         );
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[RichTextContent] base64 decode failed: $e');
         return const SizedBox.shrink();
       }
     }

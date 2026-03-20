@@ -5,6 +5,10 @@ android/app/*.jks
 android/app/*.keystore
 android/app/google-services.json
 
+# Cloud Functions
+functions/node_modules/
+functions/.env
+
 # Flutter
 .dart_tool/
 .flutter-plugins

@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- Android 13+ プッシュ通知パーミッション -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <application
         android:label="Agridic"
@@ -32,5 +34,9 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- FCM デフォルト通知チャンネル (Android 8+) -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="agridic_default" />
     </application>
 </manifest>

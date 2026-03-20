@@ -691,7 +691,8 @@ class __DictConfigSheetState extends State<_DictConfigSheet> {
         'dictTags': _tags,
       });
       if (mounted) Navigator.pop(context);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[DictionaryScreen] updatePost failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Failed to save'),
