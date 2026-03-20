@@ -127,8 +127,11 @@ class UserPrefs extends ChangeNotifier {
       return e.message ?? 'Google sign-in failed';
     } catch (e) {
       final msg = e.toString();
-      if (msg.contains('cancel') || msg.contains('Cancel')) return null;
-      // Surface the raw error so the user knows what went wrong
+      // Only treat explicit user-cancel as silent (not developer errors)
+      if (msg.contains('sign_in_canceled') || msg.contains('sign_in_cancelled')) {
+        return null;
+      }
+      // Surface all other errors (including DEVELOPER_ERROR / code 10)
       return msg;
     }
   }
