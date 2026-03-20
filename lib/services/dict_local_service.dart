@@ -31,6 +31,31 @@ class DictLocalService {
     }));
   }
 
+  /// Merge [newPosts] into the existing cache without re-downloading known entries.
+  /// Returns the total count after merge.
+  static Future<int> merge(List<Post> newPosts, int mode) async {
+    final existing = await load();
+    final existingIds = existing.posts.map((p) => p.postId).toSet();
+
+    // Only add truly new entries
+    final toAdd = newPosts.where((p) => !existingIds.contains(p.postId)).toList();
+    if (toAdd.isEmpty) return existing.posts.length;
+
+    final merged = [...existing.posts, ...toAdd];
+    final data = merged.map((p) => _toMap(p, mode)).toList();
+
+    final f = await _file(_cacheFile);
+    await f.writeAsString(jsonEncode(data));
+
+    final meta = await _file(_metaFile);
+    await meta.writeAsString(jsonEncode({
+      'savedAt': DateTime.now().toIso8601String(),
+      'mode': mode,
+      'count': merged.length,
+    }));
+    return merged.length;
+  }
+
   /// Load cached posts from local storage.
   static Future<({List<Post> posts, DateTime? savedAt, int mode})> load() async {
     try {

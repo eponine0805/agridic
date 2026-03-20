@@ -22,8 +22,16 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
   String? _downloadError;
   bool _done = false;
 
+  /// キャッシュ情報（再ダウンロード時に使う）
+  DateTime? _cachedSavedAt;
+  int _cachedCount = 0;
+
   /// 0 = text only, 1 = text + thumbnails, 2 = text + full images
   int _selectedMode = 1;
+
+  /// 再ダウンロード時: true = 差分のみ, false = 全件
+  bool get _isIncremental =>
+      !widget.isFirstRun && _cachedSavedAt != null;
 
   @override
   void initState() {
@@ -33,7 +41,18 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
 
   Future<void> _fetchInfo() async {
     try {
-      final info = await FirebaseService.getDictionaryInfo();
+      // 既存キャッシュを確認
+      if (!widget.isFirstRun) {
+        final cached = await DictLocalService.load();
+        _cachedSavedAt = cached.savedAt;
+        _cachedCount = cached.posts.length;
+        _selectedMode = cached.mode;
+      }
+
+      // 差分のみのサイズを表示（再ダウンロード時）
+      final info = await FirebaseService.getDictionaryInfo(
+        since: _isIncremental ? _cachedSavedAt : null,
+      );
       if (mounted) setState(() {
         _info = info;
         _loadingInfo = false;
@@ -71,14 +90,29 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
       _downloadError = null;
     });
     try {
-      final posts = await FirebaseService.fetchDictionaryPosts();
+      // 差分ダウンロード: 再ダウンロード時はキャッシュ以降の新規エントリのみ取得
+      final posts = await FirebaseService.fetchDictionaryPosts(
+        since: _isIncremental ? _cachedSavedAt : null,
+      );
+
       for (var i = 0; i < posts.length; i++) {
         if (mounted) setState(() => _downloadedCount = i + 1);
         await Future.delayed(const Duration(milliseconds: 10));
       }
-      await DictLocalService.save(posts, _selectedMode);
+
+      int totalCount;
+      if (_isIncremental) {
+        // 既存キャッシュにマージ
+        totalCount = await DictLocalService.merge(posts, _selectedMode);
+      } else {
+        // 初回または全件上書き
+        await DictLocalService.save(posts, _selectedMode);
+        totalCount = posts.length;
+      }
+
       await context.read<UserPrefs>().markFirstDownloadDone();
       if (mounted) setState(() {
+        _downloadedCount = totalCount;
         _downloading = false;
         _done = true;
       });
@@ -150,19 +184,51 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
             child: CircularProgressIndicator(color: AppColors.primary),
           )
         else ...[
+          if (_isIncremental) ...[
+            // 差分ダウンロード情報
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.modeActive,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                    color: AppColors.primary.withOpacity(0.3)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.inventory_2_outlined,
+                    size: 16, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Already saved: $_cachedCount guides',
+                    style: const TextStyle(
+                        fontSize: 13, color: AppColors.primaryDark),
+                  ),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 10),
+          ],
           Text(
             count == 0
-                ? 'No dictionary entries available yet.'
-                : '$count guide${count == 1 ? '' : 's'} available',
+                ? (_isIncremental
+                    ? 'Everything is up to date — no new guides.'
+                    : 'No dictionary entries available yet.')
+                : (_isIncremental
+                    ? '$count new guide${count == 1 ? '' : 's'} available'
+                    : '$count guide${count == 1 ? '' : 's'} available'),
             style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 color: AppColors.textPrimary),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Choose what to include in your download:',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          Text(
+            _isIncremental
+                ? 'Only new guides will be downloaded and added.'
+                : 'Choose what to include in your download:',
+            style: const TextStyle(
+                fontSize: 12, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 12),
           if (count > 0) ...[
@@ -261,7 +327,13 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
                               color: Colors.white, strokeWidth: 2),
                         )
                       : Text(
-                          _downloadError != null ? 'Retry' : 'Download now',
+                          _downloadError != null
+                              ? 'Retry'
+                              : (_isIncremental && (count == 0))
+                                  ? 'Already up to date'
+                                  : (_isIncremental
+                                      ? 'Download $count new guide${count == 1 ? '' : 's'}'
+                                      : 'Download now'),
                           style: const TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600)),
@@ -282,13 +354,20 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
   }
 
   Widget _buildDoneView() {
+    final newCount = _isIncremental
+        ? (_downloadedCount - _cachedCount).clamp(0, _downloadedCount)
+        : _downloadedCount;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         const Icon(Icons.check_circle, color: AppColors.primary, size: 72),
         const SizedBox(height: 20),
         Text(
-          'Downloaded $_downloadedCount guide${_downloadedCount == 1 ? '' : 's'}',
+          _isIncremental
+              ? (newCount == 0
+                  ? 'Already up to date'
+                  : '+$newCount new guide${newCount == 1 ? '' : 's'} added')
+              : 'Downloaded $_downloadedCount guide${_downloadedCount == 1 ? '' : 's'}',
           style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
@@ -296,9 +375,11 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 8),
-        const Text(
-          'The agricultural guide is ready to use offline.',
-          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        Text(
+          _isIncremental
+              ? 'Total: $_downloadedCount guides saved on device.'
+              : 'The agricultural guide is ready to use offline.',
+          style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 40),

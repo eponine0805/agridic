@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,8 +13,6 @@ class UserPrefs extends ChangeNotifier {
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
   final _googleSignIn = GoogleSignIn();
-  StreamSubscription<User?>? _authSub;
-  StreamSubscription<int>? _unreadSub;
 
   User? _user;
   String _role = 'farmer';
@@ -55,15 +52,15 @@ class UserPrefs extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _firstDownloadDone = prefs.getBool(_keyFirstLoginDone) ?? false;
 
-    _authSub = _auth.authStateChanges().listen((user) async {
+    _auth.authStateChanges().listen((user) async {
       _user = user;
       if (user != null) {
         await _loadRole(user.uid);
-        _startUnreadStream(user.uid);
+        await _loadUnreadCount(user.uid);
         await _setupFcm(user.uid);
       } else {
         _role = 'farmer';
-        _stopUnreadStream();
+        _bio = '';
         _unreadCount = 0;
         _cachedNotifications = null;
         _notifLastLoaded = null;
@@ -119,19 +116,19 @@ class UserPrefs extends ChangeNotifier {
     }
   }
 
-  // ─── 未読数ストリーム（UserPrefs 内で 1 本だけ管理）─────────────────
+  // ─── 未読数（起動時に1回のみ取得、以降はFCM受信でインクリメント）────
 
-  void _startUnreadStream(String uid) {
-    _unreadSub?.cancel();
-    _unreadSub = FirebaseService.streamUnreadCount(uid).listen((count) {
-      _unreadCount = count;
+  Future<void> _loadUnreadCount(String uid) async {
+    try {
+      _unreadCount = await FirebaseService.fetchUnreadCount(uid);
       notifyListeners();
-    });
+    } catch (_) {}
   }
 
-  void _stopUnreadStream() {
-    _unreadSub?.cancel();
-    _unreadSub = null;
+  /// FCMでプッシュ通知を受信した時に呼ぶ（main.dartのforegroundハンドラから）
+  void incrementUnreadCount() {
+    _unreadCount++;
+    notifyListeners();
   }
 
   // ─── 通知キャッシュ更新 ───────────────────────────────────────────
@@ -267,8 +264,6 @@ class UserPrefs extends ChangeNotifier {
 
   @override
   void dispose() {
-    _authSub?.cancel();
-    _unreadSub?.cancel();
     super.dispose();
   }
 }

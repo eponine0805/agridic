@@ -140,9 +140,11 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
-    // フォアグラウンド中にプッシュ通知が届いたら SnackBar で表示
+    // フォアグラウンド中にプッシュ通知が届いたら未読数をインクリメント + SnackBar 表示
     FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
+      // ストリームなしで未読バッジを更新
+      context.read<UserPrefs>().incrementUnreadCount();
       final title = message.notification?.title ?? '';
       final body = message.notification?.body ?? '';
       if (title.isEmpty) return;

@@ -185,21 +185,27 @@ class FirebaseService {
 
   // ─── 辞書ダウンロード ──────────────────────────────────────────
 
-  /// inDictionary=true のポスト一覧を全件取得
-  static Future<List<Post>> fetchDictionaryPosts() async {
-    final snap = await _db
-        .collection(_col)
-        .where('inDictionary', isEqualTo: true)
-        .get();
+  /// inDictionary=true のポスト一覧を取得
+  /// [since] を渡すとその日時以降に作成された新規エントリのみ取得（差分ダウンロード用）
+  static Future<List<Post>> fetchDictionaryPosts({DateTime? since}) async {
+    var query = _db.collection(_col).where('inDictionary', isEqualTo: true);
+    if (since != null) {
+      query =
+          query.where('timestamp', isGreaterThan: Timestamp.fromDate(since));
+    }
+    final snap = await query.get();
     return snap.docs.map((d) => Post.fromFirestore(d)).toList();
   }
 
   /// 辞書エントリ数を取得（サイズ見積もり用）
-  static Future<int> getDictionaryPostCount() async {
-    final snap = await _db
-        .collection(_col)
-        .where('inDictionary', isEqualTo: true)
-        .get();
+  /// [since] を渡すと新規エントリ数のみ返す
+  static Future<int> getDictionaryPostCount({DateTime? since}) async {
+    var query = _db.collection(_col).where('inDictionary', isEqualTo: true);
+    if (since != null) {
+      query =
+          query.where('timestamp', isGreaterThan: Timestamp.fromDate(since));
+    }
+    final snap = await query.get();
     return snap.size;
   }
 
@@ -207,9 +213,10 @@ class FirebaseService {
   /// textBytes: テキストのみのJSONバイト数
   /// thumbBytes: テキスト + サムネイル画像込みの推定バイト数
   /// fullBytes:  テキスト + フル画像込みの推定バイト数
+  /// [since] を渡すと新規エントリのみ対象
   static Future<({int count, int textBytes, int thumbBytes, int fullBytes})>
-      getDictionaryInfo() async {
-    final posts = await fetchDictionaryPosts();
+      getDictionaryInfo({DateTime? since}) async {
+    final posts = await fetchDictionaryPosts(since: since);
 
     int textBytes = 0;
     int thumbsExtra = 0;
@@ -321,15 +328,15 @@ class FirebaseService {
         .toList();
   }
 
-  /// 未読通知数をストリームで取得
-  static Stream<int> streamUnreadCount(String userId) {
-    return _db
+  /// 未読通知数を1回だけ取得（ストリームなし）
+  static Future<int> fetchUnreadCount(String userId) async {
+    final snap = await _db
         .collection('notifications')
         .doc(userId)
         .collection('items')
         .where('isRead', isEqualTo: false)
-        .snapshots()
-        .map((snap) => snap.size);
+        .get();
+    return snap.size;
   }
 
   /// 通知を既読にする
