@@ -15,11 +15,31 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   List<Map<String, dynamic>> _users = [];
   bool _loading = true;
   String? _error;
+  String _searchQuery = '';
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> get _filteredUsers {
+    if (_searchQuery.isEmpty) return _users;
+    final q = _searchQuery.toLowerCase();
+    return _users.where((u) {
+      final name = ((u['userName'] ?? '') as String).toLowerCase();
+      final email = ((u['email'] ?? '') as String).toLowerCase();
+      return name.contains(q) || email.contains(q);
+    }).toList();
+  }
 
   @override
   void initState() {
     super.initState();
     _load();
+    _searchCtrl.addListener(
+        () => setState(() => _searchQuery = _searchCtrl.text.trim()));
   }
 
   Future<void> _load() async {
@@ -129,17 +149,53 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                     ],
                   ),
                 )
-              : _users.isEmpty
-                  ? const Center(
-                      child: Text('No registered users yet.',
-                          style:
-                              TextStyle(color: AppColors.textSecondary)))
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _users.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, i) {
-                        final user = _users[i];
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                      child: TextField(
+                        controller: _searchCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Search by name or email…',
+                          prefixIcon: const Icon(Icons.search,
+                              color: AppColors.primary, size: 20),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear,
+                                      size: 18,
+                                      color: AppColors.textSecondary),
+                                  onPressed: () {
+                                    _searchCtrl.clear();
+                                    setState(() => _searchQuery = '');
+                                  },
+                                )
+                              : null,
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: _filteredUsers.isEmpty
+                          ? Center(
+                              child: Text(
+                                _searchQuery.isNotEmpty
+                                    ? 'No users found for "$_searchQuery"'
+                                    : 'No registered users yet.',
+                                style: const TextStyle(
+                                    color: AppColors.textSecondary),
+                              ),
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.all(12),
+                              itemCount: _filteredUsers.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, i) {
+                                final user = _filteredUsers[i];
                         final uid = user['uid'] as String;
                         final name = (user['userName'] ?? '') as String;
                         final email = (user['email'] ?? '') as String;
@@ -211,7 +267,10 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                                   horizontal: 4, vertical: 4),
                         );
                       },
-                    ),
+                    ),           // ListView.separated
+                ),               // Expanded
+              ],
+            ),                   // Column
     );
   }
 }

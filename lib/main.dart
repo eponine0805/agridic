@@ -65,11 +65,14 @@ class _StartupRouterState extends State<_StartupRouter> {
   }
 
   Future<void> _run() async {
-    // Wait a tick for UserPrefs to finish auth-state resolution
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
-
     final userPrefs = context.read<UserPrefs>();
+
+    // Firebase Auth のセッション復元が完了するまで待つ（固定遅延なし）
+    // → 既ログイン済みの場合はログイン画面をスキップできる
+    while (userPrefs.isLoading) {
+      await Future.delayed(const Duration(milliseconds: 50));
+      if (!mounted) return;
+    }
 
     // 1. Auth — require login
     if (!userPrefs.isLoggedIn) {
