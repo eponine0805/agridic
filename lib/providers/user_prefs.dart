@@ -163,7 +163,7 @@ class UserPrefs extends ChangeNotifier {
     _unreadCount = 0;
     notifyListeners();
     try {
-      await FirebaseService.resetLikeCount(_user!.uid);
+      if (_user != null) await FirebaseService.resetLikeCount(_user!.uid);
     } catch (_) {}
   }
 
