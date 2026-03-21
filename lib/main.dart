@@ -12,6 +12,7 @@ import 'screens/map_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/dict_download_screen.dart';
 import 'screens/admin_users_screen.dart';
+import 'screens/admin_analytics_screen.dart';
 import 'screens/user_posts_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'utils/app_colors.dart';
@@ -46,7 +47,7 @@ class AgridicApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Agridic',
+      title: 'Agridict',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
@@ -240,7 +241,7 @@ class _MainShellState extends State<MainShell> {
           const Icon(Icons.eco, color: Colors.white, size: 24),
           const SizedBox(width: 8),
           Text(
-            'Agridic',
+            'Agridict',
             style: GoogleFonts.outfit(
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -322,20 +323,40 @@ class _MainShellState extends State<MainShell> {
                         seeded ? AppColors.primary : Colors.grey,
                     duration: const Duration(seconds: 3),
                   ));
+                } else if (value == 'force_seed') {
+                  await state.forceSeedDemoData();
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('[Debug] Demo data loaded to Firestore'),
+                    backgroundColor: AppColors.accent,
+                    duration: Duration(seconds: 3),
+                  ));
                 }
               },
               itemBuilder: (_) => [
-                if (userPrefs.isAdmin)
+                if (userPrefs.isAdmin) ...[
                   const PopupMenuItem(
                     value: 'seed',
                     child: Row(
                       children: [
                         Icon(Icons.cloud_upload_outlined, size: 18),
                         SizedBox(width: 8),
-                        Text('Seed demo data'),
+                        Text('Seed demo data (skip if exists)'),
                       ],
                     ),
                   ),
+                  const PopupMenuItem(
+                    value: 'force_seed',
+                    child: Row(
+                      children: [
+                        Icon(Icons.bug_report_outlined, size: 18, color: AppColors.accent),
+                        SizedBox(width: 8),
+                        Text('[Debug] Force load demo data',
+                            style: TextStyle(color: AppColors.accent)),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             );
           },
@@ -627,6 +648,16 @@ class _ProfileScreenState extends State<_ProfileScreen> {
                     value: context.read<UserPrefs>(),
                     child: const AdminUsersScreen(),
                   ),
+                ),
+              ),
+            ),
+            _SettingsTile(
+              icon: Icons.bar_chart_outlined,
+              label: 'App analytics',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminAnalyticsScreen(),
                 ),
               ),
             ),

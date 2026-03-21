@@ -1,8 +1,5 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/app_notification.dart';
-import '../providers/app_state.dart';
 import '../providers/user_prefs.dart';
 import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
@@ -15,65 +12,22 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  List<AppNotification> _notifications = [];
-  bool _loading = true;
+  bool _resetting = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _resetIfNeeded();
   }
 
-  Future<void> _load({bool forceRefresh = false}) async {
+  Future<void> _resetIfNeeded() async {
     final userPrefs = context.read<UserPrefs>();
-
-    // キャッシュが有効かつ強制更新でなければキャッシュを使う
-    if (!forceRefresh && userPrefs.notifCacheValid) {
-      if (mounted) {
-        setState(() {
-          _notifications = userPrefs.cachedNotifications ?? [];
-          _loading = false;
-        });
-      }
-      return;
+    if (userPrefs.unreadCount > 0) {
+      setState(() => _resetting = true);
+      await userPrefs.resetLikeCount();
+      if (mounted) setState(() => _resetting = false);
     }
-
-    setState(() => _loading = true);
-    final userId = userPrefs.userId;
-    try {
-      final personal = await FirebaseService.fetchNotifications(userId);
-      final broadcasts = await FirebaseService.fetchBroadcasts();
-
-      final all = [...personal, ...broadcasts];
-      all.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-      // キャッシュを更新
-      userPrefs.setCachedNotifications(all);
-      _notifications = all;
-
-      // 個人通知を既読に → unreadCount をリセット
-      final unread =
-          personal.where((n) => !n.isRead).map((n) => n.id).toList();
-      if (unread.isNotEmpty) {
-        await FirebaseService.markNotificationsRead(userId, unread);
-        userPrefs.resetUnreadCount();
-      }
-    } catch (e) {
-      debugPrint('[NotificationsScreen] load failed: $e');
-    }
-    if (mounted) setState(() => _loading = false);
   }
-
-  IconData _iconForType(String type) => switch (type) {
-        'like' => Icons.favorite,
-        _ => Icons.campaign_outlined,
-      };
-
-  Color _colorForType(String type) => switch (type) {
-        'like' => AppColors.danger,
-        'dict_added' => AppColors.primary,
-        _ => AppColors.accent,
-      };
 
   String _timeAgo(DateTime dt) {
     final delta = DateTime.now().difference(dt);
@@ -85,26 +39,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final likeCount = context.watch<UserPrefs>().unreadCount;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         title: const Text('Notifications',
-            style:
-                TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         elevation: 2,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, size: 20),
-            onPressed: () => _load(forceRefresh: true),
-          ),
-        ],
       ),
-      body: _loading
+      body: _resetting
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.primary))
-          : _notifications.isEmpty
+          : likeCount <= 0
               ? const Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -118,83 +67,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     ],
                   ),
                 )
-              : ListView.separated(
+              : ListView(
                   padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: _notifications.length,
-                  separatorBuilder: (_, __) => const Divider(
-                      height: 1, color: AppColors.divider, indent: 64),
-                  itemBuilder: (context, index) {
-                    final n = _notifications[index];
-                    return _NotificationTile(
-                      notification: n,
-                      icon: _iconForType(n.type),
-                      iconColor: _colorForType(n.type),
-                      timeText: _timeAgo(n.timestamp),
-                    );
-                  },
+                  children: [
+                    ListTile(
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withOpacity(0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.favorite,
+                            color: AppColors.danger, size: 20),
+                      ),
+                      title: Text(
+                        '$likeCount 件のいいねがありました',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
+                    ),
+                  ],
                 ),
-    );
-  }
-}
-
-class _NotificationTile extends StatelessWidget {
-  final AppNotification notification;
-  final IconData icon;
-  final Color iconColor;
-  final String timeText;
-
-  const _NotificationTile({
-    required this.notification,
-    required this.icon,
-    required this.iconColor,
-    required this.timeText,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: notification.isRead
-          ? Colors.transparent
-          : AppColors.primary.withOpacity(0.04),
-      child: ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.12),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: iconColor, size: 20),
-        ),
-        title: Text(
-          notification.title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight:
-                notification.isRead ? FontWeight.normal : FontWeight.bold,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (notification.body.isNotEmpty)
-              Text(
-                notification.body,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary),
-              ),
-            const SizedBox(height: 2),
-            Text(timeText,
-                style: const TextStyle(
-                    fontSize: 11, color: AppColors.textSecondary)),
-          ],
-        ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      ),
     );
   }
 }

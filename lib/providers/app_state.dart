@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -13,6 +14,7 @@ class AppState extends ChangeNotifier {
   bool isDetectingLocation = false;
 
   List<Post> _posts = [];
+  List<Post>? _visiblePostsCache; // visiblePosts のメモ化キャッシュ
   bool isLoading = true;
   bool isSeeding = false;
   bool _loadingMore = false;
@@ -21,6 +23,9 @@ class AppState extends ChangeNotifier {
 
   bool isOnline = true;
   int pendingQueueCount = 0;
+
+  StreamSubscription? _connectivitySubscription;
+  bool _processingQueue = false;
 
   bool get loadingMore => _loadingMore;
   bool get hasMore => _hasMore;
@@ -37,7 +42,8 @@ class AppState extends ChangeNotifier {
     pendingQueueCount = await OfflineQueueService.count();
     notifyListeners();
 
-    Connectivity().onConnectivityChanged.listen((results) async {
+    _connectivitySubscription =
+        Connectivity().onConnectivityChanged.listen((results) async {
       final wasOffline = !isOnline;
       isOnline = !results.contains(ConnectivityResult.none);
       pendingQueueCount = await OfflineQueueService.count();
@@ -49,21 +55,37 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _processOfflineQueue() async {
+    if (_processingQueue) return;
+    _processingQueue = true;
+    try {
+      await _processOfflineQueueInternal();
+    } finally {
+      _processingQueue = false;
+    }
+  }
+
+  Future<void> _processOfflineQueueInternal() async {
     final items = await OfflineQueueService.getAll();
     if (items.isEmpty) return;
-    for (final data in items) {
+
+    // 先頭から順に処理し、成功したものを1件ずつキューから削除する
+    // → クラッシュしても処理済み画像URLがキューに保存されており、再起動後に重複アップロードしない
+    int offset = 0;
+    for (var i = 0; i < items.length; i++) {
+      var data = items[i];
       try {
-        // 新フォーマット: {'post': {...}, 'localTweetImagePath': '...'}
-        // 旧フォーマット: 直接 postJson（後方互換）
         final bool isNewFormat = data.containsKey('post');
         final postData = isNewFormat
             ? (data['post'] as Map<String, dynamic>)
             : data;
         var post = Post.fromMap(postData);
+        var dirty = false; // キューエントリを更新すべきか
 
         // ツイート画像のローカルパスがあればアップロード
         final tweetImagePath = data['localTweetImagePath'] as String?;
-        if (tweetImagePath != null) {
+        if (tweetImagePath != null &&
+            !tweetImagePath.startsWith('http') &&
+            !tweetImagePath.startsWith('data:')) {
           try {
             final urls = await FirebaseService.uploadImage(
                 post.postId, XFile(tweetImagePath));
@@ -72,41 +94,69 @@ class AppState extends ChangeNotifier {
               _contentWith(post.content,
                   imageLow: urls.low, imageHigh: urls.high),
             );
+            // アップロード済み URL をキューエントリへ反映（クラッシュ再試行時に再アップロードしない）
+            final updatedEntry = Map<String, dynamic>.from(data);
+            updatedEntry['post'] = post.toJson();
+            updatedEntry.remove('localTweetImagePath');
+            await OfflineQueueService.updateAt(i - offset, updatedEntry);
+            data = updatedEntry;
+            dirty = true;
           } catch (e) {
             debugPrint('[OfflineQueue] tweet image upload failed: $e');
           }
         }
 
-        // レポートのブロック画像（content.images にローカルパスが入っている場合）
-        if (post.content.images.any((img) => !img.startsWith('http'))) {
+        // レポートのブロック画像（ローカルパスが残っている場合）
+        if (post.content.images.any((img) =>
+            !img.startsWith('http') && !img.startsWith('data:'))) {
           final updated = <String>[];
-          for (var i = 0; i < post.content.images.length; i++) {
-            final img = post.content.images[i];
-            if (!img.startsWith('http')) {
+          for (var j = 0; j < post.content.images.length; j++) {
+            final img = post.content.images[j];
+            if (!img.startsWith('http') && !img.startsWith('data:')) {
               try {
                 final urls = await FirebaseService.uploadImage(
-                    '${post.postId}_img_$i', XFile(img));
+                    '${post.postId}_img_$j', XFile(img));
                 updated.add(urls.high.isNotEmpty ? urls.high : urls.low);
               } catch (e) {
-                debugPrint('[OfflineQueue] block image upload failed (index $i): $e');
-                updated.add('');
+                debugPrint('[OfflineQueue] block image upload failed ($j): $e');
+                updated.add(img); // 失敗したままにして次回再試行
               }
             } else {
               updated.add(img);
             }
           }
           post = _rebuildPost(post, _contentWith(post.content, images: updated));
+          dirty = true;
+        }
+
+        // アップロード済み URL をキューへ反映（Firestore書き込み前に保存）
+        if (dirty) {
+          final updatedEntry = Map<String, dynamic>.from(data);
+          updatedEntry['post'] = post.toJson();
+          await OfflineQueueService.updateAt(i - offset, updatedEntry);
         }
 
         await FirebaseService.savePost(post);
+
+        // Firestore書き込み成功後に1件削除
+        await OfflineQueueService.removeAt(i - offset);
+        offset++; // 削除した分だけインデックスをずらす
       } catch (e) {
         debugPrint('[OfflineQueue] failed to process queued post: $e');
+        // 失敗したエントリはキューに残し、次回オンライン復帰時に再試行
       }
     }
-    await OfflineQueueService.clear();
-    pendingQueueCount = 0;
+
+    pendingQueueCount = await OfflineQueueService.count();
     // 投稿反映のためリフレッシュ
-    await _loadInitial();
+    if (pendingQueueCount == 0) await _loadInitial();
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    super.dispose();
   }
 
   /// Post を新しい PostContent で再生成するヘルパー
@@ -148,7 +198,15 @@ class AppState extends ChangeNotifier {
 
   List<Post> get posts => _posts;
 
-  List<Post> get visiblePosts => _posts.where((p) => !p.isHidden).toList();
+  /// isHidden でないポストのリスト（メモ化：_posts が差し替わるまでキャッシュを再利用）
+  List<Post> get visiblePosts => _visiblePostsCache ??=
+      _posts.where((p) => !p.isHidden).toList();
+
+  /// _posts を差し替えるときはキャッシュを同時に無効化する
+  void _setPosts(List<Post> newPosts) {
+    _posts = newPosts;
+    _visiblePostsCache = null;
+  }
 
   List<Post> get officialPosts =>
       visiblePosts.where((p) => p.isOfficial && p.inDictionary).toList();
@@ -160,7 +218,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       final result = await FirebaseService.fetchPostsPage();
-      _posts = result.posts;
+      _setPosts(result.posts);
       _lastDoc = result.lastDoc;
       _hasMore = result.posts.length >= 20;
     } catch (e) {
@@ -181,7 +239,7 @@ class AppState extends ChangeNotifier {
       }
       final newPosts = await FirebaseService.fetchPostsSince(since);
       if (newPosts.isNotEmpty) {
-        _posts = [...newPosts, ..._posts];
+        _setPosts([...newPosts, ..._posts]);
         notifyListeners();
       }
     } catch (e) {
@@ -197,7 +255,7 @@ class AppState extends ChangeNotifier {
     try {
       final result = await FirebaseService.fetchPostsPage(after: _lastDoc);
       if (result.posts.isNotEmpty) {
-        _posts = [..._posts, ...result.posts];
+      _setPosts([..._posts, ...result.posts]);
         _lastDoc = result.lastDoc ?? _lastDoc;
         _hasMore = result.posts.length >= 20;
       } else {
@@ -292,44 +350,58 @@ class AppState extends ChangeNotifier {
     final post = _posts[idx];
     final alreadyLiked = post.likedBy.contains(userId);
 
-    // ローカルで楽観的更新（Firestore読み込み不要）
-    if (alreadyLiked) {
-      post.likes--;
-      post.likedBy = post.likedBy.where((id) => id != userId).toList();
-    } else {
-      post.likes++;
-      post.likedBy = [...post.likedBy, userId];
-    }
+    // copyWith で新しい Post インスタンスを作って楽観的更新（直接ミューテーションなし）
+    final optimistic = alreadyLiked
+        ? post.copyWith(
+            likes: post.likes - 1,
+            likedBy: post.likedBy.where((id) => id != userId).toList(),
+          )
+        : post.copyWith(
+            likes: post.likes + 1,
+            likedBy: [...post.likedBy, userId],
+          );
+    _posts[idx] = optimistic;
+    _visiblePostsCache = null;
     notifyListeners();
 
     try {
       await FirebaseService.toggleLike(postId, userId, alreadyLiked);
-      // いいね追加時に通知を作成（自分の投稿でない場合のみ）
+      // いいね追加時にカウンターをインクリメント（自分の投稿でない場合のみ）
       if (!alreadyLiked && post.userId != userId) {
-        await FirebaseService.addNotification(
-          userId: post.userId,
-          type: 'like',
-          title: '$likerName がいいねしました',
-          body: post.content.textShort,
-          postId: postId,
-        );
+        await FirebaseService.incrementLikeCount(post.userId);
       }
     } catch (_) {
-      // Firestore 失敗時はロールバック
-      if (alreadyLiked) {
-        post.likes++;
-        post.likedBy = [...post.likedBy, userId];
-      } else {
-        post.likes--;
-        post.likedBy = post.likedBy.where((id) => id != userId).toList();
-      }
+      // Firestore 失敗時はロールバック（元の post に戻す）
+      _posts[idx] = post;
+      _visiblePostsCache = null;
       notifyListeners();
+    }
+  }
+
+  /// 投稿のコンテンツをローカル + Firestore で更新（編集用）
+  Future<void> editPost(String postId, PostContent newContent) async {
+    final idx = _posts.indexWhere((p) => p.postId == postId);
+    if (idx < 0) return;
+    // 楽観的更新（ロールバック用に元の投稿を退避）
+    final original = _posts[idx];
+    _posts[idx] = original.copyWith(content: newContent);
+    _visiblePostsCache = null;
+    notifyListeners();
+    try {
+      await FirebaseService.editPost(postId, newContent);
+    } catch (e) {
+      // ロールバック
+      _posts[idx] = original;
+      _visiblePostsCache = null;
+      notifyListeners();
+      rethrow;
     }
   }
 
   /// 投稿をローカルリストから削除
   void removePost(String postId) {
     _posts.removeWhere((p) => p.postId == postId);
+    _visiblePostsCache = null; // キャッシュ無効化
     notifyListeners();
   }
 
@@ -344,6 +416,7 @@ class AppState extends ChangeNotifier {
       final idx = _posts.indexWhere((p) => p.postId == postId);
       if (idx >= 0) {
         _posts[idx] = updated;
+        _visiblePostsCache = null; // キャッシュ無効化
         notifyListeners();
       }
     } catch (e) {
@@ -354,10 +427,12 @@ class AppState extends ChangeNotifier {
   /// 投稿を追加（オフライン時はキューに保存）
   /// [localTweetImagePath]: オフライン時の添付画像ローカルパス。
   ///   オンライン復帰時に自動アップロードされる。
-  Future<bool> addPost(Post post, {String? localTweetImagePath}) async {
+  /// 戻り値: true = オンライン投稿成功 / false = オフラインキュー保存 / null = キュー満杯
+  Future<bool?> addPost(Post post, {String? localTweetImagePath}) async {
     if (!isOnline) {
-      await OfflineQueueService.enqueue(post,
+      final queued = await OfflineQueueService.enqueue(post,
           localTweetImagePath: localTweetImagePath);
+      if (!queued) return null; // キュー満杯
       pendingQueueCount = await OfflineQueueService.count();
       notifyListeners();
       return false; // オフラインキューに保存
@@ -365,7 +440,7 @@ class AppState extends ChangeNotifier {
     await FirebaseService.savePost(post);
     // 先頭ページを再取得して新投稿を即座に反映
     final result = await FirebaseService.fetchPostsPage();
-    _posts = result.posts;
+      _setPosts(result.posts);
     _lastDoc = result.lastDoc;
     _hasMore = result.posts.length >= 20;
     notifyListeners();
@@ -378,13 +453,26 @@ class AppState extends ChangeNotifier {
     final seeded = await FirebaseService.seedDemoData();
     if (seeded) {
       final result = await FirebaseService.fetchPostsPage();
-      _posts = result.posts;
+      _setPosts(result.posts);
       _lastDoc = result.lastDoc;
       _hasMore = result.posts.length >= 20;
     }
     isSeeding = false;
     notifyListeners();
     return seeded;
+  }
+
+  /// デモデータを強制投入してフィードを更新（デバッグ用）
+  Future<void> forceSeedDemoData() async {
+    isSeeding = true;
+    notifyListeners();
+    await FirebaseService.forceSeedDemoData();
+    final result = await FirebaseService.fetchPostsPage();
+      _setPosts(result.posts);
+    _lastDoc = result.lastDoc;
+    _hasMore = result.posts.length >= 20;
+    isSeeding = false;
+    notifyListeners();
   }
 
   String formatTime(DateTime? ts) {

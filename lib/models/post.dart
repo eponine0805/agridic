@@ -62,16 +62,20 @@ class Post {
   final (double, double)? location;
   final DateTime? timestamp;
   final bool isVerified;
-  int reports;
-  bool isHidden;
-  int likes;
-  List<String> likedBy;
+  final int reports;
+  final bool isHidden;
+  final int likes;
+  final List<String> likedBy;
   final double distanceKm;
   final String viewMode;
   final String dictCrop;
   final String dictCategory;
   final List<String> dictTags;
   final bool inDictionary;
+  /// 'tweet' | 'report' | '' (empty = legacy, inferred from dictCrop)
+  final String postType;
+  /// 投稿者のアバター画像（base64 data URL）— 投稿作成時に埋め込み
+  final String avatarBase64;
 
   Post({
     required this.postId,
@@ -93,7 +97,61 @@ class Post {
     this.dictCategory = '',
     this.dictTags = const [],
     this.inDictionary = false,
+    this.postType = '',
+    this.avatarBase64 = '',
   });
+
+  Post copyWith({
+    String? userId,
+    bool? isOfficial,
+    String? userRole,
+    String? userName,
+    PostContent? content,
+    (double, double)? location,
+    DateTime? timestamp,
+    bool? isVerified,
+    int? reports,
+    bool? isHidden,
+    int? likes,
+    List<String>? likedBy,
+    double? distanceKm,
+    String? viewMode,
+    String? dictCrop,
+    String? dictCategory,
+    List<String>? dictTags,
+    bool? inDictionary,
+    String? postType,
+    String? avatarBase64,
+  }) =>
+      Post(
+        postId: postId,
+        userId: userId ?? this.userId,
+        isOfficial: isOfficial ?? this.isOfficial,
+        userRole: userRole ?? this.userRole,
+        userName: userName ?? this.userName,
+        content: content ?? this.content,
+        location: location ?? this.location,
+        timestamp: timestamp ?? this.timestamp,
+        isVerified: isVerified ?? this.isVerified,
+        reports: reports ?? this.reports,
+        isHidden: isHidden ?? this.isHidden,
+        likes: likes ?? this.likes,
+        likedBy: likedBy ?? this.likedBy,
+        distanceKm: distanceKm ?? this.distanceKm,
+        viewMode: viewMode ?? this.viewMode,
+        dictCrop: dictCrop ?? this.dictCrop,
+        dictCategory: dictCategory ?? this.dictCategory,
+        dictTags: dictTags ?? this.dictTags,
+        inDictionary: inDictionary ?? this.inDictionary,
+        postType: postType ?? this.postType,
+        avatarBase64: avatarBase64 ?? this.avatarBase64,
+      );
+
+  /// tweet か report かを判定（postType フィールドが空の旧データに対応）
+  bool get isTweet => postType == 'tweet' ||
+      (postType.isEmpty && dictCrop.isEmpty && content.steps.isEmpty &&
+          content.textFull.isEmpty && content.textFullManual.isEmpty);
+  bool get isReport => !isTweet;
 
   /// オフラインキューのJSONから復元する
   factory Post.fromMap(Map<String, dynamic> m) {
@@ -127,6 +185,8 @@ class Post {
       dictCategory: (m['dictCategory'] ?? '') as String,
       dictTags: List<String>.from(m['dictTags'] ?? []),
       inDictionary: (m['inDictionary'] ?? false) as bool,
+      postType: (m['postType'] ?? '') as String,
+      avatarBase64: (m['avatarBase64'] ?? '') as String,
     );
   }
 
@@ -160,6 +220,8 @@ class Post {
       dictCategory: (m['dictCategory'] ?? '') as String,
       dictTags: List<String>.from(m['dictTags'] ?? []),
       inDictionary: (m['inDictionary'] ?? false) as bool,
+      postType: (m['postType'] ?? '') as String,
+      avatarBase64: (m['avatarBase64'] ?? '') as String,
     );
   }
 
@@ -185,6 +247,8 @@ class Post {
         'dictCategory': dictCategory,
         'dictTags': dictTags,
         'inDictionary': inDictionary,
+        'postType': postType,
+        'avatarBase64': avatarBase64,
       };
 
   /// JSON シリアライズ用（オフラインキュー保存）
@@ -209,5 +273,7 @@ class Post {
         'dictCategory': dictCategory,
         'dictTags': dictTags,
         'inDictionary': inDictionary,
+        'postType': postType,
+        'avatarBase64': avatarBase64,
       };
 }

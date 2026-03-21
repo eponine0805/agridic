@@ -1,9 +1,10 @@
 changes.patch
 
-# Keystore files (managed via GitHub Secrets)
+# Keystore files (managed via GitHub Secrets / CI environment)
 android/app/*.jks
 android/app/*.keystore
 android/app/google-services.json
+keystore_secret.txt
 
 # Cloud Functions
 functions/node_modules/

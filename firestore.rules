@@ -20,18 +20,20 @@ service cloud.firestore {
 
     // ─── 投稿 (posts) ────────────────────────────────────────────
     match /posts/{postId} {
-      // 誰でも読み取り可（非表示は UI 側でフィルタ済み）
-      allow read: if true;
+      // 非表示でない投稿は誰でも読み取り可。非表示投稿は admin のみ読み取り可
+      allow read: if !resource.data.isHidden || isAdmin();
 
-      // 新規投稿: 認証済みユーザー、かつ userId が自分
+      // 新規投稿: 認証済みユーザー、かつ userId が自分、postType は許可値のみ
       allow create: if isSignedIn()
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.postType in ['tweet', 'report', 'dictionary'];
 
       // 更新: 投稿者本人 or expert/admin
-      // ただし isHidden / reports / isOfficial / inDictionary は expert/admin のみ
+      // ただし isHidden / reports / isOfficial / inDictionary / postType は expert/admin のみ
+      // postType は作成後に変更不可（tweet→report 等のなりすましを防ぐ）
       allow update: if isOwner(resource.data.userId)
           && !request.resource.data.diff(resource.data).affectedKeys()
-              .hasAny(['isHidden', 'reports', 'isOfficial', 'inDictionary', 'dictCrop', 'dictCategory', 'dictTags'])
+              .hasAny(['isHidden', 'reports', 'isOfficial', 'inDictionary', 'dictCrop', 'dictCategory', 'dictTags', 'postType'])
         || isExpert();
 
       // 削除: 投稿者本人 or admin
@@ -42,6 +44,22 @@ service cloud.firestore {
         allow read: if isAdmin();
         allow create: if isOwner(userId);
         allow delete: if isAdmin();
+      }
+
+      // 正確な位置情報（admin のみ読み取り可、投稿作成時に書き込み）
+      match /private/{docId} {
+        allow read: if isAdmin();
+        allow create: if isSignedIn();
+        allow delete: if isAdmin();
+      }
+
+      // 通知逆引きインデックス（投稿削除時のカスケード用）
+      match /notif_refs/{refId} {
+        allow read: if isAdmin()
+          || isOwner(get(/databases/$(database)/documents/posts/$(postId)).data.userId);
+        allow create: if isSignedIn();
+        allow delete: if isAdmin()
+          || isOwner(get(/databases/$(database)/documents/posts/$(postId)).data.userId);
       }
     }
 

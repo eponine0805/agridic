@@ -5,7 +5,6 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
-import '../models/app_notification.dart';
 
 class FirebaseService {
   static final _db = FirebaseFirestore.instance;
@@ -49,12 +48,67 @@ class FirebaseService {
   }
 
   /// ポストをFirestoreに保存（新規作成 or 更新）
+  /// 新規投稿に位置情報がある場合:
+  ///  - メインドキュメントには市区町村レベルに丸めた座標を保存（プライバシー保護）
+  ///  - 正確な座標は posts/{id}/private/location サブコレクションに保存（admin のみ参照可）
+  ///  - メインドキュメントと private サブコレクションを Firestore WriteBatch でアトミックに書き込む
   static Future<void> savePost(Post post) async {
     final isNew = post.postId.startsWith('new_');
     final ref = isNew
         ? _db.collection(_col).doc()
         : _db.collection(_col).doc(post.postId);
-    await ref.set(post.toFirestore());
+
+    final data = post.toFirestore();
+
+    // 新規投稿かつ有効な位置情報あり → 表示用座標を市区町村レベルに丸めて上書き
+    final hasValidLocation = isNew &&
+        post.location != null &&
+        _isValidCoordinate(post.location!.$1, post.location!.$2);
+
+    if (hasValidLocation) {
+      final ward = _roundToWardLevel(post.location!.$1, post.location!.$2);
+      data['location'] = {'lat': ward.$1, 'lng': ward.$2};
+    }
+
+    if (hasValidLocation) {
+      // メインドキュメントと正確座標サブコレクションを1バッチでアトミック書き込み
+      final batch = _db.batch();
+      batch.set(ref, data);
+      batch.set(ref.collection('private').doc('location'), {
+        'lat': post.location!.$1,
+        'lng': post.location!.$2,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      await batch.commit();
+    } else {
+      await ref.set(data);
+    }
+  }
+
+  /// 座標値が有効な範囲かチェック（NaN / Infinity / 範囲外を弾く）
+  static bool _isValidCoordinate(double lat, double lng) {
+    return lat.isFinite &&
+        lng.isFinite &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180;
+  }
+
+  /// 既存投稿のコンテンツを更新（投稿者本人または admin 用）
+  static Future<void> editPost(String postId, PostContent content) async {
+    await _db.collection(_col).doc(postId).update({
+      'content': content.toMap(),
+    });
+  }
+
+  /// 位置座標を市区町村レベル（約5km精度）に丸めて返す（プライバシー保護）
+  /// 0.05° 単位に丸める（緯度経度とも約 5.5km グリッド ≈ 市区町村レベル）
+  static (double, double) _roundToWardLevel(double lat, double lng) {
+    const grid = 0.05; // ≈ 5.5 km per step
+    final roundedLat = (lat / grid).round() * grid;
+    final roundedLng = (lng / grid).round() * grid;
+    return (roundedLat, roundedLng);
   }
 
   /// ポストの特定フィールドを更新
@@ -68,14 +122,22 @@ class FirebaseService {
   static Future<bool> seedDemoData() async {
     final existing = await _db.collection(_col).limit(1).get();
     if (existing.docs.isNotEmpty) return false;
+    await _writeDemoData();
+    return true;
+  }
 
+  /// デモデータを強制投入（既存データがあっても上書き）— デバッグ用
+  static Future<void> forceSeedDemoData() async {
+    await _writeDemoData();
+  }
+
+  static Future<void> _writeDemoData() async {
     final batch = _db.batch();
     for (final post in _demoData()) {
       final ref = _db.collection(_col).doc(post.postId);
       batch.set(ref, post.toFirestore());
     }
     await batch.commit();
-    return true;
   }
 
   // ─── いいね ──────────────────────────────────────────────────
@@ -263,100 +325,103 @@ class FirebaseService {
   }
 
   /// 特定ユーザーの投稿をページネーションで取得
+  /// インデックス未デプロイ時はクライアントソートにフォールバック
   static Future<({List<Post> posts, DocumentSnapshot? lastDoc})>
       fetchPostsByUser({
     required String userId,
     DocumentSnapshot? after,
     int limit = 20,
   }) async {
-    var query = _db
-        .collection(_col)
-        .where('userId', isEqualTo: userId)
-        .orderBy('timestamp', descending: true)
-        .limit(limit);
-    if (after != null) query = query.startAfterDocument(after);
-    final snap = await query.get();
-    final posts = snap.docs
-        .map((d) => Post.fromFirestore(d))
-        .where((p) => !p.isHidden)
-        .toList();
-    return (
-      posts: posts,
-      lastDoc: snap.docs.isNotEmpty ? snap.docs.last : null,
-    );
+    try {
+      var query = _db
+          .collection(_col)
+          .where('userId', isEqualTo: userId)
+          .orderBy('timestamp', descending: true)
+          .limit(limit);
+      if (after != null) query = query.startAfterDocument(after);
+      final snap = await query.get();
+      final posts = snap.docs
+          .map((d) => Post.fromFirestore(d))
+          .where((p) => !p.isHidden)
+          .toList();
+      return (
+        posts: posts,
+        lastDoc: snap.docs.isNotEmpty ? snap.docs.last : null,
+      );
+    } catch (e) {
+      // Firestoreの複合インデックス未デプロイ時のフォールバック
+      // orderByなしで取得してクライアント側でソート
+      debugPrint('[FirebaseService] fetchPostsByUser index error, fallback: $e');
+      var query = _db
+          .collection(_col)
+          .where('userId', isEqualTo: userId)
+          .limit(limit);
+      if (after != null) query = query.startAfterDocument(after);
+      final snap = await query.get();
+      final posts = snap.docs
+          .map((d) => Post.fromFirestore(d))
+          .where((p) => !p.isHidden)
+          .toList()
+        ..sort((a, b) => (b.timestamp ?? DateTime(0))
+            .compareTo(a.timestamp ?? DateTime(0)));
+      return (
+        posts: posts,
+        lastDoc: snap.docs.isNotEmpty ? snap.docs.last : null,
+      );
+    }
   }
 
   /// 投稿を削除（投稿者本人またはadminのみ）
+  /// 関連する通知も逆引きインデックスを使ってカスケード削除する
   static Future<void> deletePost(String postId) async {
+    // 通知逆引きインデックスを取得して関連通知を削除
+    try {
+      final refs = await _db
+          .collection(_col)
+          .doc(postId)
+          .collection('notif_refs')
+          .get();
+      if (refs.docs.isNotEmpty) {
+        final batch = _db.batch();
+        for (final ref in refs.docs) {
+          final data = ref.data();
+          final userId = data['userId'] as String?;
+          final itemId = data['itemId'] as String?;
+          if (userId != null && itemId != null) {
+            batch.delete(_db
+                .collection('notifications')
+                .doc(userId)
+                .collection('items')
+                .doc(itemId));
+          }
+          batch.delete(ref.reference);
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      debugPrint('[FirebaseService] cascade notification delete failed: $e');
+    }
     await _db.collection(_col).doc(postId).delete();
   }
 
   // ─── 通知 ──────────────────────────────────────────────────────
 
-  /// 特定ユーザーへの通知を追加
-  static Future<void> addNotification({
-    required String userId,
-    required String type,
-    required String title,
-    required String body,
-    String? postId,
-  }) async {
+  /// いいねカウンターをインクリメント（個別ドキュメントではなく users/{uid}.newLikeCount で管理）
+  static Future<void> incrementLikeCount(String userId) async {
     if (userId.isEmpty) return;
     await _db
-        .collection('notifications')
+        .collection('users')
         .doc(userId)
-        .collection('items')
-        .add({
-      'type': type,
-      'title': title,
-      'body': body,
-      if (postId != null) 'postId': postId,
-      'timestamp': FieldValue.serverTimestamp(),
-      'isRead': false,
-    });
+        .update({'newLikeCount': FieldValue.increment(1)});
   }
 
-  /// ユーザーの通知一覧を取得（最新50件）
-  static Future<List<AppNotification>> fetchNotifications(
-      String userId) async {
-    final snap = await _db
-        .collection('notifications')
+  /// いいねカウンターをリセット（通知画面を開いた時に呼ぶ）
+  static Future<void> resetLikeCount(String userId) async {
+    if (userId.isEmpty) return;
+    await _db
+        .collection('users')
         .doc(userId)
-        .collection('items')
-        .orderBy('timestamp', descending: true)
-        .limit(50)
-        .get();
-    return snap.docs
-        .map((d) => AppNotification.fromFirestore(d))
-        .toList();
-  }
-
-  /// 未読通知数を1回だけ取得（ストリームなし）
-  static Future<int> fetchUnreadCount(String userId) async {
-    final snap = await _db
-        .collection('notifications')
-        .doc(userId)
-        .collection('items')
-        .where('isRead', isEqualTo: false)
-        .get();
-    return snap.size;
-  }
-
-  /// 通知を既読にする
-  static Future<void> markNotificationsRead(
-      String userId, List<String> ids) async {
-    final batch = _db.batch();
-    for (final id in ids) {
-      batch.update(
-        _db
-            .collection('notifications')
-            .doc(userId)
-            .collection('items')
-            .doc(id),
-        {'isRead': true},
-      );
-    }
-    await batch.commit();
+        .update({'newLikeCount': 0});
   }
 
   /// 管理者ブロードキャストを送信（broadcastsコレクションに保存）
@@ -371,27 +436,6 @@ class FirebaseService {
       'sentBy': sentBy,
       'timestamp': FieldValue.serverTimestamp(),
     });
-  }
-
-  /// 管理者ブロードキャスト一覧を取得（最新20件）
-  static Future<List<AppNotification>> fetchBroadcasts() async {
-    final snap = await _db
-        .collection('broadcasts')
-        .orderBy('timestamp', descending: true)
-        .limit(20)
-        .get();
-    return snap.docs
-        .map((d) => AppNotification.fromMap(d.id, d.data()))
-        .toList();
-  }
-
-  /// ブロードキャストの未読数をストリームで取得（最新ブロードキャストのタイムスタンプと比較）
-  static Stream<int> streamUnreadBroadcastCount(DateTime lastRead) {
-    return _db
-        .collection('broadcasts')
-        .where('timestamp', isGreaterThan: Timestamp.fromDate(lastRead))
-        .snapshots()
-        .map((snap) => snap.size);
   }
 
   // ─── ユーザー管理 ──────────────────────────────────────────────
@@ -413,10 +457,42 @@ class FirebaseService {
   }
 
 
-  /// ユーザー一覧をFirestoreから取得
-  static Future<List<Map<String, dynamic>>> fetchUsers() async {
-    final snap = await _db.collection('users').get();
-    return snap.docs.map((d) => {'uid': d.id, ...d.data()}).toList();
+  /// ユーザーを名前またはメールのプレフィックスで検索（admin専用）
+  /// Firestore の範囲クエリを使った前方一致検索。最大50件返す。
+  static Future<List<Map<String, dynamic>>> searchUsers(String query) async {
+    if (query.isEmpty) return [];
+    final q = query.trim();
+    final end = q.substring(0, q.length - 1) +
+        String.fromCharCode(q.codeUnitAt(q.length - 1) + 1);
+
+    // 名前とメールで別々に検索してマージ（重複除去）
+    final results = <String, Map<String, dynamic>>{};
+
+    try {
+      final byName = await _db
+          .collection('users')
+          .where('userName', isGreaterThanOrEqualTo: q)
+          .where('userName', isLessThan: end)
+          .limit(50)
+          .get();
+      for (final d in byName.docs) {
+        results[d.id] = {'uid': d.id, ...d.data()};
+      }
+    } catch (_) {}
+
+    try {
+      final byEmail = await _db
+          .collection('users')
+          .where('email', isGreaterThanOrEqualTo: q)
+          .where('email', isLessThan: end)
+          .limit(50)
+          .get();
+      for (final d in byEmail.docs) {
+        results.putIfAbsent(d.id, () => {'uid': d.id, ...d.data()});
+      }
+    } catch (_) {}
+
+    return results.values.toList();
   }
 
   /// FCM デバイストークンを Firestore の users/{uid} に保存
@@ -433,6 +509,7 @@ class FirebaseService {
         isOfficial: true,
         userRole: 'expert',
         userName: 'Extension Officer',
+        postType: 'report',
         content: const PostContent(
           textShort: 'Maize Stem Borer Alert & Control [Maize] — Gatanga',
           textFull: '## Maize Stem Borer — Alert & Control\n'
@@ -485,6 +562,7 @@ class FirebaseService {
         isOfficial: true,
         userRole: 'expert',
         userName: 'Extension Officer',
+        postType: 'report',
         content: const PostContent(
           textShort: "Maize Growing Guide [Maize] — Gatanga, Murang'a County",
           textFull: '## Maize Growing Guide\n'
@@ -541,6 +619,7 @@ class FirebaseService {
         isOfficial: true,
         userRole: 'expert',
         userName: 'Min. of Agriculture',
+        postType: 'report',
         content: const PostContent(
           textShort: "Fall Armyworm (FAW) outbreak confirmed [Maize] — Nakuru / spreading to Murang'a",
           textFull: '## Fall Armyworm (FAW) Outbreak\n'
@@ -582,7 +661,8 @@ class FirebaseService {
         postId: 'off_blight',
         isOfficial: true,
         userRole: 'expert',
-        userName: 'Agridic Official',
+        userName: 'Agridict Official',
+        postType: 'report',
         content: const PostContent(
           textShort: 'Tomato Late Blight alert [Tomato] — Kiambu County',
           textFull: '## Tomato Late Blight Alert\n'
@@ -629,6 +709,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'farmer',
         userName: 'Mary Wanjiku',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               'My maize leaves have small holes and there is sawdust stuff in the whorl. Is this stem borer? Help!',
@@ -643,6 +724,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'expert',
         userName: 'John Kamau',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               "Mary, that sounds like stem borer. Search 'stem borer' on this app for the official guide. Apply Bulldock into the whorl ASAP.",
@@ -658,6 +740,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'farmer',
         userName: 'Grace Njeri',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               'Just planted H614 last week, rains are looking good. Anyone else planting maize in Gatanga?',
@@ -671,6 +754,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'farmer',
         userName: 'Peter Mwangi',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               'When is the best time to apply CAN fertilizer for maize? Plants are about knee height.',
@@ -684,6 +768,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'expert',
         userName: 'John Kamau',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               'Peter, knee height is perfect for 2nd top dressing. 1 tbsp CAN per plant, 10cm from stem. Wait for rain first.',
@@ -696,4 +781,55 @@ class FirebaseService {
       ),
     ];
   }
+
+  // ─── アクセス解析 ──────────────────────────────────────────────
+
+  /// アプリ起動を記録する。
+  /// [lastOpenDate] は users/{uid} から読んだ値（_loadRole で既に取得済み）。
+  /// 今日初めての起動なら uniqueUsers も +1、毎回 openCount を +1。
+  /// 追加の Firestore 読み取りは 0（_loadRole の既存 read に乗せる）。
+  static Future<void> recordAppOpen(String uid, String? lastOpenDate) async {
+    final today = _dateKey(DateTime.now());
+    final ref = _db.collection('analytics').doc(today);
+    final isNewDay = lastOpenDate != today;
+
+    if (isNewDay) {
+      // 初回起動: openCount + uniqueUsers をインクリメント、lastOpenDate を更新
+      await Future.wait([
+        ref.set(
+          {'openCount': FieldValue.increment(1), 'uniqueUsers': FieldValue.increment(1), 'date': today},
+          SetOptions(merge: true),
+        ),
+        _db.collection('users').doc(uid).update({'lastOpenDate': today}),
+      ]);
+    } else {
+      // 同日 2 回目以降: openCount だけインクリメント
+      await ref.set(
+        {'openCount': FieldValue.increment(1), 'date': today},
+        SetOptions(merge: true),
+      );
+    }
+  }
+
+  /// 過去 [days] 日分のアクセス解析データを取得（管理者専用）。
+  /// [days] 件の Firestore 読み取りが発生する。
+  static Future<List<Map<String, dynamic>>> fetchAnalytics({int days = 30}) async {
+    final now = DateTime.now();
+    final futures = List.generate(days, (i) {
+      final date = now.subtract(Duration(days: i));
+      return _db.collection('analytics').doc(_dateKey(date)).get();
+    });
+    final snaps = await Future.wait(futures);
+    return snaps.map((s) {
+      final data = s.data() ?? {};
+      return {
+        'date': s.id,
+        'openCount': (data['openCount'] as int?) ?? 0,
+        'uniqueUsers': (data['uniqueUsers'] as int?) ?? 0,
+      };
+    }).toList().reversed.toList(); // 古い順に並べ替え
+  }
+
+  static String _dateKey(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 }

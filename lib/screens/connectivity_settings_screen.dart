@@ -79,7 +79,7 @@ class _ConnectivitySettingsScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (widget.isFirstRun) ...[
-              const Text('Welcome to Agridic!',
+              const Text('Welcome to Agridict!',
                   style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,

@@ -1,14 +1,16 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import '../models/app_notification.dart';
+import '../models/post.dart' show UserRole;
 import '../services/firebase_service.dart';
 
 class UserPrefs extends ChangeNotifier {
   static const _keyFirstLoginDone = 'dict_first_download_done';
+  static const _keyAvatarBase64 = 'user_avatar_base64';
 
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
@@ -16,14 +18,15 @@ class UserPrefs extends ChangeNotifier {
 
   User? _user;
   String _role = 'farmer';
+  Timer? _fcmTokenRefreshDebounce;
+  StreamSubscription? _fcmTokenRefreshSubscription;
   String _bio = '';
+  String _avatarBase64 = '';
   bool _firstDownloadDone = false;
   bool _loading = true;
 
-  // ─── 通知キャッシュ ────────────────────────────────────────────────
+  // ─── 未読いいね数 ─────────────────────────────────────────────────
   int _unreadCount = 0;
-  List<AppNotification>? _cachedNotifications;
-  DateTime? _notifLastLoaded;
 
   bool get isLoading => _loading;
   bool get isLoggedIn => _user != null;
@@ -34,15 +37,18 @@ class UserPrefs extends ChangeNotifier {
           : (_user?.email?.split('@').first ?? '');
   String get userEmail => _user?.email ?? '';
   String get userRole => _role;
+  /// 型安全なロール参照用（列挙型）
+  UserRole get role => switch (_role) {
+        'expert' => UserRole.expert,
+        'admin' => UserRole.admin,
+        _ => UserRole.farmer,
+      };
   String get userBio => _bio;
-  bool get isAdmin => _role == 'admin';
-  bool get isExpert => _role == 'expert' || _role == 'admin';
+  String get avatarBase64 => _avatarBase64;
+  bool get isAdmin => role == UserRole.admin;
+  bool get isExpert => role == UserRole.expert || role == UserRole.admin;
   bool get firstDownloadDone => _firstDownloadDone;
   int get unreadCount => _unreadCount;
-  List<AppNotification>? get cachedNotifications => _cachedNotifications;
-  bool get notifCacheValid =>
-      _notifLastLoaded != null &&
-      DateTime.now().difference(_notifLastLoaded!).inMinutes < 5;
 
   UserPrefs() {
     _init();
@@ -51,22 +57,28 @@ class UserPrefs extends ChangeNotifier {
   Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
     _firstDownloadDone = prefs.getBool(_keyFirstLoginDone) ?? false;
+    _avatarBase64 = prefs.getString(_keyAvatarBase64) ?? '';
 
     _auth.authStateChanges().listen((user) async {
       _user = user;
-      if (user != null) {
-        await _loadRole(user.uid);
-        await _loadUnreadCount(user.uid);
-        await _setupFcm(user.uid);
-      } else {
-        _role = 'farmer';
-        _bio = '';
-        _unreadCount = 0;
-        _cachedNotifications = null;
-        _notifLastLoaded = null;
+      try {
+        if (user != null) {
+          await _loadRole(user.uid);
+          await _setupFcm(user.uid);
+        } else {
+          _fcmTokenRefreshSubscription?.cancel();
+          _fcmTokenRefreshSubscription = null;
+          _fcmTokenRefreshDebounce?.cancel();
+          _role = 'farmer';
+          _bio = '';
+          _unreadCount = 0;
+        }
+      } catch (e) {
+        debugPrint('[UserPrefs] auth state handler error: $e');
+      } finally {
+        _loading = false;
+        notifyListeners();
       }
-      _loading = false;
-      notifyListeners();
     });
   }
 
@@ -74,11 +86,27 @@ class UserPrefs extends ChangeNotifier {
     try {
       final doc = await _db.collection('users').doc(uid).get();
       if (doc.exists) {
-        _role = (doc.data()?['role'] ?? 'farmer') as String;
-        _bio = (doc.data()?['bio'] ?? '') as String;
+        final data = doc.data()!;
+        _role = (data['role'] ?? 'farmer') as String;
+        _bio = (data['bio'] ?? '') as String;
+        _unreadCount = (data['newLikeCount'] as int?) ?? 0;
+        // 新端末ではローカルにアバターがないので Firestore から復元（_loadRole は既存 read に乗せる）
+        if (_avatarBase64.isEmpty) {
+          final remote = (data['avatarBase64'] ?? '') as String;
+          if (remote.isNotEmpty) {
+            _avatarBase64 = remote;
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString(_keyAvatarBase64, remote);
+          }
+        }
+        // アクセス解析を記録（追加の Firestore read なし）
+        final lastOpenDate = data['lastOpenDate'] as String?;
+        FirebaseService.recordAppOpen(uid, lastOpenDate);
       } else {
         _role = 'farmer';
         _bio = '';
+        _unreadCount = 0;
+        FirebaseService.recordAppOpen(uid, null);
       }
     } catch (_) {
       _role = 'farmer';
@@ -104,9 +132,15 @@ class UserPrefs extends ChangeNotifier {
         await FirebaseService.saveFcmToken(uid, token);
       }
 
-      // トークン更新時に再保存
-      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-        FirebaseService.saveFcmToken(uid, newToken);
+      // トークン更新時に再保存（1秒デバウンス: 連続更新で Firestore 書き込みが連発しないよう抑制）
+      _fcmTokenRefreshSubscription?.cancel();
+      _fcmTokenRefreshSubscription =
+          FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+        _fcmTokenRefreshDebounce?.cancel();
+        _fcmTokenRefreshDebounce =
+            Timer(const Duration(seconds: 1), () {
+          FirebaseService.saveFcmToken(uid, newToken);
+        });
       });
 
       // 農業アラート全配信トピックを購読
@@ -116,14 +150,7 @@ class UserPrefs extends ChangeNotifier {
     }
   }
 
-  // ─── 未読数（起動時に1回のみ取得、以降はFCM受信でインクリメント）────
-
-  Future<void> _loadUnreadCount(String uid) async {
-    try {
-      _unreadCount = await FirebaseService.fetchUnreadCount(uid);
-      notifyListeners();
-    } catch (_) {}
-  }
+  // ─── 未読数（起動時に _loadRole と同じ read で取得、以降はFCM受信でインクリメント）────
 
   /// FCMでプッシュ通知を受信した時に呼ぶ（main.dartのforegroundハンドラから）
   void incrementUnreadCount() {
@@ -131,19 +158,13 @@ class UserPrefs extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ─── 通知キャッシュ更新 ───────────────────────────────────────────
-
-  /// 通知一覧をキャッシュとして保存（NotificationsScreen から呼ぶ）
-  void setCachedNotifications(List<AppNotification> list) {
-    _cachedNotifications = list;
-    _notifLastLoaded = DateTime.now();
-    notifyListeners();
-  }
-
-  /// 既読化後に未読数をローカルでリセット
-  void resetUnreadCount() {
+  /// 通知画面を開いた時に呼ぶ（Firestore の newLikeCount もリセット）
+  Future<void> resetLikeCount() async {
     _unreadCount = 0;
     notifyListeners();
+    try {
+      if (_user != null) await FirebaseService.resetLikeCount(_user!.uid);
+    } catch (_) {}
   }
 
   // ─── 認証 ─────────────────────────────────────────────────────────
@@ -214,7 +235,30 @@ class UserPrefs extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _fcmTokenRefreshSubscription?.cancel();
+    _fcmTokenRefreshSubscription = null;
+    _fcmTokenRefreshDebounce?.cancel();
+    // FCM トークンを Firestore から削除してからサインアウト
     try {
+      final uid = _user?.uid;
+      if (uid != null) {
+        final token = await FirebaseMessaging.instance.getToken();
+        if (token != null) {
+          // tokens サブコレクションから削除
+          await _db
+              .collection('users')
+              .doc(uid)
+              .collection('tokens')
+              .doc(token)
+              .delete();
+          // fcmToken フィールドもクリア
+          await _db
+              .collection('users')
+              .doc(uid)
+              .update({'fcmToken': FieldValue.delete()});
+        }
+        await FirebaseMessaging.instance.deleteToken();
+      }
       await FirebaseMessaging.instance.unsubscribeFromTopic('broadcasts');
     } catch (_) {}
     await _googleSignIn.signOut();
@@ -225,6 +269,23 @@ class UserPrefs extends ChangeNotifier {
     if (_user == null) return;
     await _loadRole(_user!.uid);
     notifyListeners();
+  }
+
+  /// アバター画像を更新（ローカル保存 + Firestore バックアップ）
+  /// base64文字列が 2MB を超える場合は例外を投げる
+  Future<void> updateAvatar(String base64) async {
+    const maxSize = 2 * 1024 * 1024; // 2 MB
+    if (base64.length > maxSize) {
+      throw Exception('アバター画像が大きすぎます（最大 2MB）');
+    }
+    _avatarBase64 = base64;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyAvatarBase64, base64);
+    if (_user != null) {
+      await _db.collection('users').doc(_user!.uid).set(
+          {'avatarBase64': base64}, SetOptions(merge: true));
+    }
   }
 
   Future<String?> updateBio(String newBio) async {
@@ -264,6 +325,8 @@ class UserPrefs extends ChangeNotifier {
 
   @override
   void dispose() {
+    _fcmTokenRefreshSubscription?.cancel();
+    _fcmTokenRefreshDebounce?.cancel();
     super.dispose();
   }
 }
