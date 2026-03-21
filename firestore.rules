@@ -29,10 +29,11 @@ service cloud.firestore {
         && request.resource.data.postType in ['tweet', 'report', 'dictionary'];
 
       // 更新: 投稿者本人 or expert/admin
-      // ただし isHidden / reports / isOfficial / inDictionary は expert/admin のみ
+      // ただし isHidden / reports / isOfficial / inDictionary / postType は expert/admin のみ
+      // postType は作成後に変更不可（tweet→report 等のなりすましを防ぐ）
       allow update: if isOwner(resource.data.userId)
           && !request.resource.data.diff(resource.data).affectedKeys()
-              .hasAny(['isHidden', 'reports', 'isOfficial', 'inDictionary', 'dictCrop', 'dictCategory', 'dictTags'])
+              .hasAny(['isHidden', 'reports', 'isOfficial', 'inDictionary', 'dictCrop', 'dictCategory', 'dictTags', 'postType'])
         || isExpert();
 
       // 削除: 投稿者本人 or admin

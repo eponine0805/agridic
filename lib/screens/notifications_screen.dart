@@ -74,10 +74,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       // メモリ上のキャッシュを先に確認して不要な Firestore 読み込みを避ける
       final appState = context.read<AppState>();
-      Post? post = appState.posts.cast<Post?>().firstWhere(
-            (p) => p?.postId == postId,
-            orElse: () => null,
-          );
+      Post? post;
+      try {
+        post = appState.posts.firstWhere((p) => p.postId == postId);
+      } catch (_) {}
       post ??= await FirebaseService.fetchPostById(postId);
       if (!mounted) return;
       if (post == null) {

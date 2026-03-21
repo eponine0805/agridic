@@ -218,7 +218,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       final result = await FirebaseService.fetchPostsPage();
-_setPosts(result.posts);
+      _setPosts(result.posts);
       _lastDoc = result.lastDoc;
       _hasMore = result.posts.length >= 20;
     } catch (e) {
@@ -239,7 +239,7 @@ _setPosts(result.posts);
       }
       final newPosts = await FirebaseService.fetchPostsSince(since);
       if (newPosts.isNotEmpty) {
-        _setPosts([...newPosts, ..._posts];
+        _setPosts([...newPosts, ..._posts]);
         notifyListeners();
       }
     } catch (e) {
@@ -255,7 +255,7 @@ _setPosts(result.posts);
     try {
       final result = await FirebaseService.fetchPostsPage(after: _lastDoc);
       if (result.posts.isNotEmpty) {
-_setPosts([..._posts, ...result.posts]);
+      _setPosts([..._posts, ...result.posts]);
         _lastDoc = result.lastDoc ?? _lastDoc;
         _hasMore = result.posts.length >= 20;
       } else {
@@ -446,7 +446,7 @@ _setPosts([..._posts, ...result.posts]);
     await FirebaseService.savePost(post);
     // 先頭ページを再取得して新投稿を即座に反映
     final result = await FirebaseService.fetchPostsPage();
-_setPosts(result.posts);
+      _setPosts(result.posts);
     _lastDoc = result.lastDoc;
     _hasMore = result.posts.length >= 20;
     notifyListeners();
@@ -459,7 +459,7 @@ _setPosts(result.posts);
     final seeded = await FirebaseService.seedDemoData();
     if (seeded) {
       final result = await FirebaseService.fetchPostsPage();
-_setPosts(result.posts);
+      _setPosts(result.posts);
       _lastDoc = result.lastDoc;
       _hasMore = result.posts.length >= 20;
     }
@@ -474,7 +474,7 @@ _setPosts(result.posts);
     notifyListeners();
     await FirebaseService.forceSeedDemoData();
     final result = await FirebaseService.fetchPostsPage();
-_setPosts(result.posts);
+      _setPosts(result.posts);
     _lastDoc = result.lastDoc;
     _hasMore = result.posts.length >= 20;
     isSeeding = false;
