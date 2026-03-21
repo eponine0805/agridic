@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -23,6 +24,9 @@ class AppState extends ChangeNotifier {
   bool isOnline = true;
   int pendingQueueCount = 0;
 
+  StreamSubscription? _connectivitySubscription;
+  bool _processingQueue = false;
+
   bool get loadingMore => _loadingMore;
   bool get hasMore => _hasMore;
 
@@ -38,7 +42,8 @@ class AppState extends ChangeNotifier {
     pendingQueueCount = await OfflineQueueService.count();
     notifyListeners();
 
-    Connectivity().onConnectivityChanged.listen((results) async {
+    _connectivitySubscription =
+        Connectivity().onConnectivityChanged.listen((results) async {
       final wasOffline = !isOnline;
       isOnline = !results.contains(ConnectivityResult.none);
       pendingQueueCount = await OfflineQueueService.count();
@@ -50,6 +55,16 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _processOfflineQueue() async {
+    if (_processingQueue) return;
+    _processingQueue = true;
+    try {
+      await _processOfflineQueueInternal();
+    } finally {
+      _processingQueue = false;
+    }
+  }
+
+  Future<void> _processOfflineQueueInternal() async {
     final items = await OfflineQueueService.getAll();
     if (items.isEmpty) return;
 
@@ -136,6 +151,12 @@ class AppState extends ChangeNotifier {
     // 投稿反映のためリフレッシュ
     if (pendingQueueCount == 0) await _loadInitial();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    super.dispose();
   }
 
   /// Post を新しい PostContent で再生成するヘルパー

@@ -20,6 +20,7 @@ class UserPrefs extends ChangeNotifier {
   User? _user;
   String _role = 'farmer';
   Timer? _fcmTokenRefreshDebounce;
+  StreamSubscription? _fcmTokenRefreshSubscription;
   String _bio = '';
   String _avatarBase64 = '';
   bool _firstDownloadDone = false;
@@ -67,19 +68,27 @@ class UserPrefs extends ChangeNotifier {
 
     _auth.authStateChanges().listen((user) async {
       _user = user;
-      if (user != null) {
-        await _loadRole(user.uid);
-        await _loadUnreadCount(user.uid);
-        await _setupFcm(user.uid);
-      } else {
-        _role = 'farmer';
-        _bio = '';
-        _unreadCount = 0;
-        _cachedNotifications = null;
-        _notifLastLoaded = null;
+      try {
+        if (user != null) {
+          await _loadRole(user.uid);
+          await _loadUnreadCount(user.uid);
+          await _setupFcm(user.uid);
+        } else {
+          _fcmTokenRefreshSubscription?.cancel();
+          _fcmTokenRefreshSubscription = null;
+          _fcmTokenRefreshDebounce?.cancel();
+          _role = 'farmer';
+          _bio = '';
+          _unreadCount = 0;
+          _cachedNotifications = null;
+          _notifLastLoaded = null;
+        }
+      } catch (e) {
+        debugPrint('[UserPrefs] auth state handler error: $e');
+      } finally {
+        _loading = false;
+        notifyListeners();
       }
-      _loading = false;
-      notifyListeners();
     });
   }
 
@@ -127,7 +136,9 @@ class UserPrefs extends ChangeNotifier {
       }
 
       // トークン更新時に再保存（1秒デバウンス: 連続更新で Firestore 書き込みが連発しないよう抑制）
-      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+      _fcmTokenRefreshSubscription?.cancel();
+      _fcmTokenRefreshSubscription =
+          FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
         _fcmTokenRefreshDebounce?.cancel();
         _fcmTokenRefreshDebounce =
             Timer(const Duration(seconds: 1), () {
@@ -240,6 +251,9 @@ class UserPrefs extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _fcmTokenRefreshSubscription?.cancel();
+    _fcmTokenRefreshSubscription = null;
+    _fcmTokenRefreshDebounce?.cancel();
     // FCM トークンを Firestore から削除してからサインアウト
     try {
       final uid = _user?.uid;
@@ -274,7 +288,12 @@ class UserPrefs extends ChangeNotifier {
   }
 
   /// アバター画像を更新（ローカル保存 + Firestore バックアップ）
+  /// base64文字列が 2MB を超える場合は例外を投げる
   Future<void> updateAvatar(String base64) async {
+    const maxSize = 2 * 1024 * 1024; // 2 MB
+    if (base64.length > maxSize) {
+      throw Exception('アバター画像が大きすぎます（最大 2MB）');
+    }
     _avatarBase64 = base64;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
@@ -322,6 +341,7 @@ class UserPrefs extends ChangeNotifier {
 
   @override
   void dispose() {
+    _fcmTokenRefreshSubscription?.cancel();
     _fcmTokenRefreshDebounce?.cancel();
     super.dispose();
   }

@@ -261,6 +261,15 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   Future<void> _submit() async {
     if (_submitting) return;
+    try {
+      await _submitInternal();
+    } catch (e) {
+      setState(() => _submitting = false);
+      if (mounted) _showError('エラーが発生しました: $e');
+    }
+  }
+
+  Future<void> _submitInternal() async {
     final state = context.read<AppState>();
     final userPrefs = context.read<UserPrefs>();
     final postId = 'new_${DateTime.now().millisecondsSinceEpoch}';

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -20,10 +22,24 @@ class _DetailScreenState extends State<DetailScreen> {
   late String _activeTab;
   // 一度でも表示したタブを記録（遅延レンダリング用）
   final Set<String> _loadedTabs = {};
+  StreamSubscription? _postDeleteSubscription;
 
   @override
   void initState() {
     super.initState();
+    // 投稿が削除された場合はこの画面を閉じる
+    _postDeleteSubscription = FirebaseFirestore.instance
+        .collection('posts')
+        .doc(widget.post.postId)
+        .snapshots()
+        .listen((snap) {
+      if (!snap.exists && mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('この投稿は削除されました')),
+        );
+      }
+    });
     final available = _availableModes();
     // テキストモードが存在すれば優先、なければ viewMode、なければ最初のもの
     if (available.contains('text')) {
@@ -34,6 +50,12 @@ class _DetailScreenState extends State<DetailScreen> {
       _activeTab = available.isNotEmpty ? available.first : widget.post.viewMode;
     }
     _loadedTabs.add(_activeTab);
+  }
+
+  @override
+  void dispose() {
+    _postDeleteSubscription?.cancel();
+    super.dispose();
   }
 
   /// 実際にコンテンツが入力されているモードのみ返す

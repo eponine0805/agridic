@@ -61,14 +61,17 @@ class FirebaseService {
 
     final data = post.toFirestore();
 
-    // 新規投稿かつ位置情報あり → 表示用座標を市区町村レベルに丸めて上書き
-    if (isNew && post.location != null) {
-      final exact = post.location!;
-      final ward = _roundToWardLevel(exact.$1, exact.$2);
+    // 新規投稿かつ有効な位置情報あり → 表示用座標を市区町村レベルに丸めて上書き
+    final hasValidLocation = isNew &&
+        post.location != null &&
+        _isValidCoordinate(post.location!.$1, post.location!.$2);
+
+    if (hasValidLocation) {
+      final ward = _roundToWardLevel(post.location!.$1, post.location!.$2);
       data['location'] = {'lat': ward.$1, 'lng': ward.$2};
     }
 
-    if (isNew && post.location != null) {
+    if (hasValidLocation) {
       // メインドキュメントと正確座標サブコレクションを1バッチでアトミック書き込み
       final batch = _db.batch();
       batch.set(ref, data);
@@ -81,6 +84,16 @@ class FirebaseService {
     } else {
       await ref.set(data);
     }
+  }
+
+  /// 座標値が有効な範囲かチェック（NaN / Infinity / 範囲外を弾く）
+  static bool _isValidCoordinate(double lat, double lng) {
+    return lat.isFinite &&
+        lng.isFinite &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180;
   }
 
   /// 既存投稿のコンテンツを更新（投稿者本人または admin 用）
