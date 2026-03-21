@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
@@ -96,6 +99,27 @@ class _UserPostsScreenState extends State<UserPostsScreen>
       debugPrint('[UserPostsScreen] loadMore failed: $e');
     }
     if (mounted) setState(() => _loadingMore = false);
+  }
+
+  Future<void> _editAvatar(BuildContext context) async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 90,
+    );
+    if (file == null || !context.mounted) return;
+
+    final rawBytes = await file.readAsBytes();
+    final compressed = await FlutterImageCompress.compressWithList(
+      rawBytes,
+      minWidth: 120,
+      minHeight: 120,
+      quality: 80,
+    );
+    final base64Str = 'data:image/jpeg;base64,${base64Encode(compressed)}';
+    if (context.mounted) {
+      await context.read<UserPrefs>().updateAvatar(base64Str);
+    }
   }
 
   Future<void> _editProfile(BuildContext context) async {
@@ -318,6 +342,8 @@ class _UserPostsScreenState extends State<UserPostsScreen>
                           userRole: userPrefs.userRole,
                           tweetCount: _tweets.length,
                           reportCount: _reports.length,
+                          avatarBase64: userPrefs.avatarBase64,
+                          onEditAvatar: () => _editAvatar(context),
                         ),
                   )
                 : _ProfileHeader(
@@ -326,6 +352,9 @@ class _UserPostsScreenState extends State<UserPostsScreen>
                     userRole: '',
                     tweetCount: _tweets.length,
                     reportCount: _reports.length,
+                    avatarBase64: _allPosts.isNotEmpty
+                        ? _allPosts.first.avatarBase64
+                        : '',
                   ),
           ),
         ),
@@ -350,6 +379,8 @@ class _ProfileHeader extends StatelessWidget {
   final String userRole;
   final int tweetCount;
   final int reportCount;
+  final String avatarBase64;
+  final VoidCallback? onEditAvatar;
 
   const _ProfileHeader({
     required this.userName,
@@ -357,6 +388,8 @@ class _ProfileHeader extends StatelessWidget {
     required this.userRole,
     required this.tweetCount,
     required this.reportCount,
+    this.avatarBase64 = '',
+    this.onEditAvatar,
   });
 
   Color _roleColor(String role) => switch (role) {
@@ -376,16 +409,42 @@ class _ProfileHeader extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundColor: Colors.white,
-                child: Text(
-                  userName.isNotEmpty ? userName[0].toUpperCase() : '?',
-                  style: const TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold),
-                ),
+              Stack(
+                children: [
+                  avatarBase64.isNotEmpty
+                      ? AvatarImage(base64: avatarBase64, radius: 32)
+                      : CircleAvatar(
+                          radius: 32,
+                          backgroundColor: Colors.white,
+                          child: Text(
+                            userName.isNotEmpty
+                                ? userName[0].toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                  if (onEditAvatar != null)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: GestureDetector(
+                        onTap: onEditAvatar,
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.camera_alt,
+                              size: 14, color: AppColors.primary),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(width: 12),
               Expanded(

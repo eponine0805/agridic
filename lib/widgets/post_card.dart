@@ -412,6 +412,9 @@ class _Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isExpert = post.userRole == 'expert';
+    if (post.avatarBase64.isNotEmpty) {
+      return AvatarImage(base64: post.avatarBase64, radius: 18);
+    }
     return CircleAvatar(
       radius: 18,
       backgroundColor: isExpert ? AppColors.primary : AppColors.accent,
@@ -420,6 +423,30 @@ class _Avatar extends StatelessWidget {
         style: const TextStyle(color: Colors.white, fontSize: 14),
       ),
     );
+  }
+}
+
+/// base64 アバター画像ウィジェット（PostCard・プロフィール画面で共用）
+class AvatarImage extends StatelessWidget {
+  final String base64;
+  final double radius;
+  const AvatarImage({super.key, required this.base64, required this.radius});
+
+  @override
+  Widget build(BuildContext context) {
+    try {
+      final data = base64.contains(',') ? base64.split(',').last : base64;
+      return CircleAvatar(
+        radius: radius,
+        backgroundImage: MemoryImage(const Base64Decoder().convert(data)),
+      );
+    } catch (_) {
+      return CircleAvatar(
+        radius: radius,
+        backgroundColor: AppColors.accent,
+        child: Icon(Icons.person, size: radius, color: Colors.white),
+      );
+    }
   }
 }
 

@@ -74,6 +74,8 @@ class Post {
   final bool inDictionary;
   /// 'tweet' | 'report' | '' (empty = legacy, inferred from dictCrop)
   final String postType;
+  /// 投稿者のアバター画像（base64 data URL）— 投稿作成時に埋め込み
+  final String avatarBase64;
 
   Post({
     required this.postId,
@@ -96,6 +98,7 @@ class Post {
     this.dictTags = const [],
     this.inDictionary = false,
     this.postType = '',
+    this.avatarBase64 = '',
   });
 
   /// tweet か report かを判定（postType フィールドが空の旧データに対応）
@@ -137,6 +140,7 @@ class Post {
       dictTags: List<String>.from(m['dictTags'] ?? []),
       inDictionary: (m['inDictionary'] ?? false) as bool,
       postType: (m['postType'] ?? '') as String,
+      avatarBase64: (m['avatarBase64'] ?? '') as String,
     );
   }
 
@@ -171,6 +175,7 @@ class Post {
       dictTags: List<String>.from(m['dictTags'] ?? []),
       inDictionary: (m['inDictionary'] ?? false) as bool,
       postType: (m['postType'] ?? '') as String,
+      avatarBase64: (m['avatarBase64'] ?? '') as String,
     );
   }
 
@@ -197,6 +202,7 @@ class Post {
         'dictTags': dictTags,
         'inDictionary': inDictionary,
         'postType': postType,
+        'avatarBase64': avatarBase64,
       };
 
   /// JSON シリアライズ用（オフラインキュー保存）
@@ -222,5 +228,6 @@ class Post {
         'dictTags': dictTags,
         'inDictionary': inDictionary,
         'postType': postType,
+        'avatarBase64': avatarBase64,
       };
 }

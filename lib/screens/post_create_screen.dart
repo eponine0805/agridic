@@ -253,6 +253,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           location: _resolvedLocation,
           dictTags: _tags,
           postType: 'tweet',
+          avatarBase64: userPrefs.avatarBase64,
         ),
         // オフライン時: ローカルパスを渡す → オンライン復帰時に自動アップロード
         localTweetImagePath:
@@ -339,6 +340,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         dictCrop: crop,
         dictTags: _tags,
         postType: 'report',
+        avatarBase64: userPrefs.avatarBase64,
       ));
     }
 

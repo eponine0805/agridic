@@ -9,6 +9,7 @@ import '../services/firebase_service.dart';
 
 class UserPrefs extends ChangeNotifier {
   static const _keyFirstLoginDone = 'dict_first_download_done';
+  static const _keyAvatarBase64 = 'user_avatar_base64';
 
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
@@ -17,6 +18,7 @@ class UserPrefs extends ChangeNotifier {
   User? _user;
   String _role = 'farmer';
   String _bio = '';
+  String _avatarBase64 = '';
   bool _firstDownloadDone = false;
   bool _loading = true;
 
@@ -35,6 +37,7 @@ class UserPrefs extends ChangeNotifier {
   String get userEmail => _user?.email ?? '';
   String get userRole => _role;
   String get userBio => _bio;
+  String get avatarBase64 => _avatarBase64;
   bool get isAdmin => _role == 'admin';
   bool get isExpert => _role == 'expert' || _role == 'admin';
   bool get firstDownloadDone => _firstDownloadDone;
@@ -51,6 +54,7 @@ class UserPrefs extends ChangeNotifier {
   Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
     _firstDownloadDone = prefs.getBool(_keyFirstLoginDone) ?? false;
+    _avatarBase64 = prefs.getString(_keyAvatarBase64) ?? '';
 
     _auth.authStateChanges().listen((user) async {
       _user = user;
@@ -76,6 +80,15 @@ class UserPrefs extends ChangeNotifier {
       if (doc.exists) {
         _role = (doc.data()?['role'] ?? 'farmer') as String;
         _bio = (doc.data()?['bio'] ?? '') as String;
+        // 新端末ではローカルにアバターがないので Firestore から復元（_loadRole は既存 read に乗せる）
+        if (_avatarBase64.isEmpty) {
+          final remote = (doc.data()?['avatarBase64'] ?? '') as String;
+          if (remote.isNotEmpty) {
+            _avatarBase64 = remote;
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString(_keyAvatarBase64, remote);
+          }
+        }
       } else {
         _role = 'farmer';
         _bio = '';
@@ -225,6 +238,18 @@ class UserPrefs extends ChangeNotifier {
     if (_user == null) return;
     await _loadRole(_user!.uid);
     notifyListeners();
+  }
+
+  /// アバター画像を更新（ローカル保存 + Firestore バックアップ）
+  Future<void> updateAvatar(String base64) async {
+    _avatarBase64 = base64;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyAvatarBase64, base64);
+    if (_user != null) {
+      await _db.collection('users').doc(_user!.uid).set(
+          {'avatarBase64': base64}, SetOptions(merge: true));
+    }
   }
 
   Future<String?> updateBio(String newBio) async {
