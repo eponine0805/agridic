@@ -7,19 +7,25 @@ import '../models/post.dart';
 class OfflineQueueService {
   static const _key = 'offline_post_queue';
 
+  /// キューに保存できる投稿の最大件数（端末ストレージ保護）
+  static const maxQueueSize = 20;
+
   /// キューに投稿を追加
   /// [localTweetImagePath] : ツイート型の添付画像ローカルパス（オフライン時）
-  static Future<void> enqueue(Post post, {String? localTweetImagePath}) async {
+  /// キューが満杯の場合は false を返す
+  static Future<bool> enqueue(Post post, {String? localTweetImagePath}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
     final List<dynamic> queue =
         raw != null ? jsonDecode(raw) as List<dynamic> : [];
+    if (queue.length >= maxQueueSize) return false; // キュー満杯
     final entry = <String, dynamic>{'post': post.toJson()};
     if (localTweetImagePath != null) {
       entry['localTweetImagePath'] = localTweetImagePath;
     }
     queue.add(entry);
     await prefs.setString(_key, jsonEncode(queue));
+    return true;
   }
 
   /// キューの全エントリを取得

@@ -50,8 +50,9 @@ class FirebaseService {
 
   /// ポストをFirestoreに保存（新規作成 or 更新）
   /// 新規投稿に位置情報がある場合:
-  ///  - メインドキュメントには 150〜300m ランダムオフセットした座標を保存（プライバシー保護）
+  ///  - メインドキュメントには市区町村レベルに丸めた座標を保存（プライバシー保護）
   ///  - 正確な座標は posts/{id}/private/location サブコレクションに保存（admin のみ参照可）
+  ///  - メインドキュメントと private サブコレクションを Firestore WriteBatch でアトミックに書き込む
   static Future<void> savePost(Post post) async {
     final isNew = post.postId.startsWith('new_');
     final ref = isNew
@@ -60,23 +61,33 @@ class FirebaseService {
 
     final data = post.toFirestore();
 
-    // 新規投稿かつ位置情報あり → 表示用座標を市区町村レベルに丸めて保存
+    // 新規投稿かつ位置情報あり → 表示用座標を市区町村レベルに丸めて上書き
     if (isNew && post.location != null) {
       final exact = post.location!;
       final ward = _roundToWardLevel(exact.$1, exact.$2);
       data['location'] = {'lat': ward.$1, 'lng': ward.$2};
     }
 
-    await ref.set(data);
-
-    // 正確な座標を admin 専用サブコレクションへ保存
     if (isNew && post.location != null) {
-      await ref.collection('private').doc('location').set({
+      // メインドキュメントと正確座標サブコレクションを1バッチでアトミック書き込み
+      final batch = _db.batch();
+      batch.set(ref, data);
+      batch.set(ref.collection('private').doc('location'), {
         'lat': post.location!.$1,
         'lng': post.location!.$2,
         'timestamp': FieldValue.serverTimestamp(),
       });
+      await batch.commit();
+    } else {
+      await ref.set(data);
     }
+  }
+
+  /// 既存投稿のコンテンツを更新（投稿者本人または admin 用）
+  static Future<void> editPost(String postId, PostContent content) async {
+    await _db.collection(_col).doc(postId).update({
+      'content': content.toMap(),
+    });
   }
 
   /// 位置座標を市区町村レベル（約5km精度）に丸めて返す（プライバシー保護）

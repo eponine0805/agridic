@@ -23,9 +23,10 @@ service cloud.firestore {
       // 非表示でない投稿は誰でも読み取り可。非表示投稿は admin のみ読み取り可
       allow read: if !resource.data.isHidden || isAdmin();
 
-      // 新規投稿: 認証済みユーザー、かつ userId が自分
+      // 新規投稿: 認証済みユーザー、かつ userId が自分、postType は許可値のみ
       allow create: if isSignedIn()
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.postType in ['tweet', 'report', 'dictionary'];
 
       // 更新: 投稿者本人 or expert/admin
       // ただし isHidden / reports / isOfficial / inDictionary は expert/admin のみ

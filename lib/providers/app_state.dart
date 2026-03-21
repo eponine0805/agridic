@@ -363,6 +363,26 @@ _setPosts([..._posts, ...result.posts]);
     }
   }
 
+  /// 投稿のコンテンツをローカル + Firestore で更新（編集用）
+  Future<void> editPost(String postId, PostContent newContent) async {
+    final idx = _posts.indexWhere((p) => p.postId == postId);
+    if (idx < 0) return;
+    // 楽観的更新
+    final updated = _posts[idx].copyWith(content: newContent);
+    _posts[idx] = updated;
+    _visiblePostsCache = null;
+    notifyListeners();
+    try {
+      await FirebaseService.editPost(postId, newContent);
+    } catch (e) {
+      // ロールバック
+      _posts[idx] = _posts[idx].copyWith(content: _posts[idx].content);
+      _visiblePostsCache = null;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   /// 投稿をローカルリストから削除
   void removePost(String postId) {
     _posts.removeWhere((p) => p.postId == postId);
@@ -392,10 +412,12 @@ _setPosts([..._posts, ...result.posts]);
   /// 投稿を追加（オフライン時はキューに保存）
   /// [localTweetImagePath]: オフライン時の添付画像ローカルパス。
   ///   オンライン復帰時に自動アップロードされる。
-  Future<bool> addPost(Post post, {String? localTweetImagePath}) async {
+  /// 戻り値: true = オンライン投稿成功 / false = オフラインキュー保存 / null = キュー満杯
+  Future<bool?> addPost(Post post, {String? localTweetImagePath}) async {
     if (!isOnline) {
-      await OfflineQueueService.enqueue(post,
+      final queued = await OfflineQueueService.enqueue(post,
           localTweetImagePath: localTweetImagePath);
+      if (!queued) return null; // キュー満杯
       pendingQueueCount = await OfflineQueueService.count();
       notifyListeners();
       return false; // オフラインキューに保存

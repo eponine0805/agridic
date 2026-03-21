@@ -9,6 +9,7 @@ import '../providers/app_state.dart';
 import '../providers/user_prefs.dart';
 import '../services/dict_local_service.dart';
 import '../services/firebase_service.dart';
+import '../services/offline_queue_service.dart';
 import '../utils/app_colors.dart';
 
 class PostCreateScreen extends StatefulWidget {
@@ -137,25 +138,56 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   static const _maxImageBytes = 10 * 1024 * 1024; // 10 MB
 
-  Future<void> _pickTweetImage() async {
-    final file = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (file == null) return;
+  /// ファイルが画像かどうかを magic bytes で検証する
+  /// JPEG: FF D8 FF  /  PNG: 89 50 4E 47  /  GIF: 47 49 46 38  /  WebP: RIFF...WEBP
+  static Future<bool> _isValidImageFile(XFile file) async {
+    try {
+      final bytes = await file.openRead(0, 12).expand((b) => b).toList();
+      if (bytes.length < 4) return false;
+      // JPEG
+      if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return true;
+      // PNG
+      if (bytes[0] == 0x89 && bytes[1] == 0x50 &&
+          bytes[2] == 0x4E && bytes[3] == 0x47) return true;
+      // GIF
+      if (bytes[0] == 0x47 && bytes[1] == 0x49 &&
+          bytes[2] == 0x46 && bytes[3] == 0x38) return true;
+      // WebP: RIFF????WEBP
+      if (bytes.length >= 12 &&
+          bytes[0] == 0x52 && bytes[1] == 0x49 &&
+          bytes[2] == 0x46 && bytes[3] == 0x46 &&
+          bytes[8] == 0x57 && bytes[9] == 0x45 &&
+          bytes[10] == 0x42 && bytes[11] == 0x50) return true;
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _validateImage(XFile file) async {
     final size = await file.length();
     if (size > _maxImageBytes) {
       if (mounted) _showError('画像が大きすぎます（最大 10MB）');
-      return;
+      return false;
     }
+    if (!await _isValidImageFile(file)) {
+      if (mounted) _showError('対応していないファイル形式です（JPEG / PNG / GIF / WebP のみ）');
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _pickTweetImage() async {
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (file == null) return;
+    if (!await _validateImage(file)) return;
     setState(() => _tweetImageFile = file);
   }
 
   Future<void> _pickBlockImage(int blockId) async {
     final file = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (file == null) return;
-    final size = await file.length();
-    if (size > _maxImageBytes) {
-      if (mounted) _showError('画像が大きすぎます（最大 10MB）');
-      return;
-    }
+    if (!await _validateImage(file)) return;
     setState(() {
       final block = _currentBlocks.firstWhere((b) => b['id'] == blockId);
       block['file'] = file;
@@ -252,7 +284,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         }
       }
 
-      await state.addPost(
+      final queued = await state.addPost(
         Post(
           postId: postId,
           userId: userPrefs.userId,
@@ -274,6 +306,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         localTweetImagePath:
             (!state.isOnline && _tweetImageFile != null) ? _tweetImageFile!.path : null,
       );
+      if (queued == null) {
+        setState(() => _submitting = false);
+        if (mounted) _showError('オフラインキューが満杯です（最大 ${OfflineQueueService.maxQueueSize} 件）。接続後にお試しください。');
+        return;
+      }
     } else {
       if (_rptTitleCtrl.text.trim().isEmpty) { _showError('Please enter a headline.'); return; }
       setState(() => _submitting = true);
@@ -334,7 +371,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         if (st.isNotEmpty && steps.isEmpty) steps = st;
       }
 
-      await state.addPost(Post(
+      final reportQueued = await state.addPost(Post(
         postId: postId,
         userId: userPrefs.userId,
         isOfficial: userPrefs.isExpert,
@@ -357,6 +394,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         postType: 'report',
         avatarBase64: userPrefs.avatarBase64,
       ));
+      if (reportQueued == null) {
+        setState(() => _submitting = false);
+        if (mounted) _showError('オフラインキューが満杯です（最大 ${OfflineQueueService.maxQueueSize} 件）。接続後にお試しください。');
+        return;
+      }
     }
 
     setState(() => _submitting = false);

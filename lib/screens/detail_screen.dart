@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
+import '../providers/user_prefs.dart';
 import '../utils/app_colors.dart';
 import '../widgets/rich_text_content.dart';
 
@@ -55,11 +56,79 @@ class _DetailScreenState extends State<DetailScreen> {
     };
   }
 
+  void _showEditSheet(BuildContext context, AppState state) {
+    final controller =
+        TextEditingController(text: widget.post.content.textShort);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('投稿を編集',
+                  style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLength: 500,
+                maxLines: 5,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: '内容を入力...',
+                ),
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary),
+                onPressed: () async {
+                  final newText = controller.text.trim();
+                  if (newText.isEmpty) return;
+                  Navigator.pop(ctx);
+                  final newContent = PostContent(
+                    textShort: newText,
+                    textFull: widget.post.content.textFull,
+                    textFullManual: widget.post.content.textFullManual,
+                    textFullVisual: widget.post.content.textFullVisual,
+                    imageLow: widget.post.content.imageLow,
+                    imageHigh: widget.post.content.imageHigh,
+                    images: widget.post.content.images,
+                    steps: widget.post.content.steps,
+                  );
+                  await state.editPost(widget.post.postId, newContent);
+                },
+                child: const Text('保存',
+                    style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
+    final prefs = context.read<UserPrefs>();
     final available = _availableModes();
     final showTabs = available.length > 1;
+    final canEdit = !widget.post.isOfficial &&
+        widget.post.userId == prefs.userId;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -95,12 +164,24 @@ class _DetailScreenState extends State<DetailScreen> {
                                 color: Colors.white),
                           ),
                         ]),
-                        Text(
-                          state.formatTime(widget.post.timestamp),
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white.withOpacity(0.7)),
-                        ),
+                        Row(children: [
+                          Text(
+                            state.formatTime(widget.post.timestamp),
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white.withOpacity(0.7)),
+                          ),
+                          if (canEdit) ...[
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined,
+                                  color: Colors.white70, size: 18),
+                              onPressed: () =>
+                                  _showEditSheet(context, state),
+                              tooltip: '編集',
+                            ),
+                          ],
+                        ]),
                       ],
                     ),
                   ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -5,6 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/app_notification.dart';
+import '../models/post.dart' show UserRole;
 import '../services/firebase_service.dart';
 
 class UserPrefs extends ChangeNotifier {
@@ -17,6 +19,7 @@ class UserPrefs extends ChangeNotifier {
 
   User? _user;
   String _role = 'farmer';
+  Timer? _fcmTokenRefreshDebounce;
   String _bio = '';
   String _avatarBase64 = '';
   bool _firstDownloadDone = false;
@@ -36,10 +39,16 @@ class UserPrefs extends ChangeNotifier {
           : (_user?.email?.split('@').first ?? '');
   String get userEmail => _user?.email ?? '';
   String get userRole => _role;
+  /// 型安全なロール参照用（列挙型）
+  UserRole get role => switch (_role) {
+        'expert' => UserRole.expert,
+        'admin' => UserRole.admin,
+        _ => UserRole.farmer,
+      };
   String get userBio => _bio;
   String get avatarBase64 => _avatarBase64;
-  bool get isAdmin => _role == 'admin';
-  bool get isExpert => _role == 'expert' || _role == 'admin';
+  bool get isAdmin => role == UserRole.admin;
+  bool get isExpert => role == UserRole.expert || role == UserRole.admin;
   bool get firstDownloadDone => _firstDownloadDone;
   int get unreadCount => _unreadCount;
   List<AppNotification>? get cachedNotifications => _cachedNotifications;
@@ -117,9 +126,13 @@ class UserPrefs extends ChangeNotifier {
         await FirebaseService.saveFcmToken(uid, token);
       }
 
-      // トークン更新時に再保存
+      // トークン更新時に再保存（1秒デバウンス: 連続更新で Firestore 書き込みが連発しないよう抑制）
       FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-        FirebaseService.saveFcmToken(uid, newToken);
+        _fcmTokenRefreshDebounce?.cancel();
+        _fcmTokenRefreshDebounce =
+            Timer(const Duration(seconds: 1), () {
+          FirebaseService.saveFcmToken(uid, newToken);
+        });
       });
 
       // 農業アラート全配信トピックを購読
@@ -309,6 +322,7 @@ class UserPrefs extends ChangeNotifier {
 
   @override
   void dispose() {
+    _fcmTokenRefreshDebounce?.cancel();
     super.dispose();
   }
 }
