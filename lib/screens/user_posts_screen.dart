@@ -1,15 +1,13 @@
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
 import '../providers/user_prefs.dart';
 import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
+import '../widgets/avatar_editor.dart';
 import '../widgets/post_card.dart';
 import 'detail_screen.dart';
 
@@ -102,24 +100,7 @@ class _UserPostsScreenState extends State<UserPostsScreen>
   }
 
   Future<void> _editAvatar(BuildContext context) async {
-    final picker = ImagePicker();
-    final file = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 90,
-    );
-    if (file == null || !context.mounted) return;
-
-    final rawBytes = await file.readAsBytes();
-    final compressed = await FlutterImageCompress.compressWithList(
-      rawBytes,
-      minWidth: 120,
-      minHeight: 120,
-      quality: 80,
-    );
-    final base64Str = 'data:image/jpeg;base64,${base64Encode(compressed)}';
-    if (context.mounted) {
-      await context.read<UserPrefs>().updateAvatar(base64Str);
-    }
+    await showAvatarEditor(context);
   }
 
   Future<void> _editProfile(BuildContext context) async {
