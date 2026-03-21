@@ -395,7 +395,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           images: imgs,
         ),
         timestamp: DateTime.now(),
-        isVerified: true,
+        isVerified: userPrefs.isExpert,
         location: _resolvedLocation,
         viewMode: _activeMode,
         dictCrop: crop,

@@ -388,16 +388,16 @@ class AppState extends ChangeNotifier {
   Future<void> editPost(String postId, PostContent newContent) async {
     final idx = _posts.indexWhere((p) => p.postId == postId);
     if (idx < 0) return;
-    // 楽観的更新
-    final updated = _posts[idx].copyWith(content: newContent);
-    _posts[idx] = updated;
+    // 楽観的更新（ロールバック用に元の投稿を退避）
+    final original = _posts[idx];
+    _posts[idx] = original.copyWith(content: newContent);
     _visiblePostsCache = null;
     notifyListeners();
     try {
       await FirebaseService.editPost(postId, newContent);
     } catch (e) {
       // ロールバック
-      _posts[idx] = _posts[idx].copyWith(content: _posts[idx].content);
+      _posts[idx] = original;
       _visiblePostsCache = null;
       notifyListeners();
       rethrow;
