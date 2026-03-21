@@ -99,10 +99,14 @@ class UserPrefs extends ChangeNotifier {
             await prefs.setString(_keyAvatarBase64, remote);
           }
         }
+        // アクセス解析を記録（追加の Firestore read なし）
+        final lastOpenDate = data['lastOpenDate'] as String?;
+        FirebaseService.recordAppOpen(uid, lastOpenDate);
       } else {
         _role = 'farmer';
         _bio = '';
         _unreadCount = 0;
+        FirebaseService.recordAppOpen(uid, null);
       }
     } catch (_) {
       _role = 'farmer';

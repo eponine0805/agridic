@@ -5,7 +5,6 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/post.dart';
-import '../models/app_notification.dart';
 
 class FirebaseService {
   static final _db = FirebaseFirestore.instance;
@@ -782,4 +781,55 @@ class FirebaseService {
       ),
     ];
   }
+
+  // ─── アクセス解析 ──────────────────────────────────────────────
+
+  /// アプリ起動を記録する。
+  /// [lastOpenDate] は users/{uid} から読んだ値（_loadRole で既に取得済み）。
+  /// 今日初めての起動なら uniqueUsers も +1、毎回 openCount を +1。
+  /// 追加の Firestore 読み取りは 0（_loadRole の既存 read に乗せる）。
+  static Future<void> recordAppOpen(String uid, String? lastOpenDate) async {
+    final today = _dateKey(DateTime.now());
+    final ref = _db.collection('analytics').doc(today);
+    final isNewDay = lastOpenDate != today;
+
+    if (isNewDay) {
+      // 初回起動: openCount + uniqueUsers をインクリメント、lastOpenDate を更新
+      await Future.wait([
+        ref.set(
+          {'openCount': FieldValue.increment(1), 'uniqueUsers': FieldValue.increment(1), 'date': today},
+          SetOptions(merge: true),
+        ),
+        _db.collection('users').doc(uid).update({'lastOpenDate': today}),
+      ]);
+    } else {
+      // 同日 2 回目以降: openCount だけインクリメント
+      await ref.set(
+        {'openCount': FieldValue.increment(1), 'date': today},
+        SetOptions(merge: true),
+      );
+    }
+  }
+
+  /// 過去 [days] 日分のアクセス解析データを取得（管理者専用）。
+  /// [days] 件の Firestore 読み取りが発生する。
+  static Future<List<Map<String, dynamic>>> fetchAnalytics({int days = 30}) async {
+    final now = DateTime.now();
+    final futures = List.generate(days, (i) {
+      final date = now.subtract(Duration(days: i));
+      return _db.collection('analytics').doc(_dateKey(date)).get();
+    });
+    final snaps = await Future.wait(futures);
+    return snaps.map((s) {
+      final data = s.data() ?? {};
+      return {
+        'date': s.id,
+        'openCount': (data['openCount'] as int?) ?? 0,
+        'uniqueUsers': (data['uniqueUsers'] as int?) ?? 0,
+      };
+    }).toList().reversed.toList(); // 古い順に並べ替え
+  }
+
+  static String _dateKey(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 }

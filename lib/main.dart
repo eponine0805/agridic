@@ -12,6 +12,7 @@ import 'screens/map_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/dict_download_screen.dart';
 import 'screens/admin_users_screen.dart';
+import 'screens/admin_analytics_screen.dart';
 import 'screens/user_posts_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'utils/app_colors.dart';
@@ -647,6 +648,16 @@ class _ProfileScreenState extends State<_ProfileScreen> {
                     value: context.read<UserPrefs>(),
                     child: const AdminUsersScreen(),
                   ),
+                ),
+              ),
+            ),
+            _SettingsTile(
+              icon: Icons.bar_chart_outlined,
+              label: 'App analytics',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminAnalyticsScreen(),
                 ),
               ),
             ),
