@@ -20,8 +20,8 @@ service cloud.firestore {
 
     // ─── 投稿 (posts) ────────────────────────────────────────────
     match /posts/{postId} {
-      // 誰でも読み取り可（非表示は UI 側でフィルタ済み）
-      allow read: if true;
+      // 非表示でない投稿は誰でも読み取り可。非表示投稿は admin のみ読み取り可
+      allow read: if !resource.data.isHidden || isAdmin();
 
       // 新規投稿: 認証済みユーザー、かつ userId が自分
       allow create: if isSignedIn()
@@ -42,6 +42,22 @@ service cloud.firestore {
         allow read: if isAdmin();
         allow create: if isOwner(userId);
         allow delete: if isAdmin();
+      }
+
+      // 正確な位置情報（admin のみ読み取り可、投稿作成時に書き込み）
+      match /private/{docId} {
+        allow read: if isAdmin();
+        allow create: if isSignedIn();
+        allow delete: if isAdmin();
+      }
+
+      // 通知逆引きインデックス（投稿削除時のカスケード用）
+      match /notif_refs/{refId} {
+        allow read: if isAdmin()
+          || isOwner(get(/databases/$(database)/documents/posts/$(postId)).data.userId);
+        allow create: if isSignedIn();
+        allow delete: if isAdmin()
+          || isOwner(get(/databases/$(database)/documents/posts/$(postId)).data.userId);
       }
     }
 

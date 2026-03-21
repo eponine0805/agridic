@@ -49,12 +49,43 @@ class FirebaseService {
   }
 
   /// ポストをFirestoreに保存（新規作成 or 更新）
+  /// 新規投稿に位置情報がある場合:
+  ///  - メインドキュメントには 150〜300m ランダムオフセットした座標を保存（プライバシー保護）
+  ///  - 正確な座標は posts/{id}/private/location サブコレクションに保存（admin のみ参照可）
   static Future<void> savePost(Post post) async {
     final isNew = post.postId.startsWith('new_');
     final ref = isNew
         ? _db.collection(_col).doc()
         : _db.collection(_col).doc(post.postId);
-    await ref.set(post.toFirestore());
+
+    final data = post.toFirestore();
+
+    // 新規投稿かつ位置情報あり → 表示用座標を市区町村レベルに丸めて保存
+    if (isNew && post.location != null) {
+      final exact = post.location!;
+      final ward = _roundToWardLevel(exact.$1, exact.$2);
+      data['location'] = {'lat': ward.$1, 'lng': ward.$2};
+    }
+
+    await ref.set(data);
+
+    // 正確な座標を admin 専用サブコレクションへ保存
+    if (isNew && post.location != null) {
+      await ref.collection('private').doc('location').set({
+        'lat': post.location!.$1,
+        'lng': post.location!.$2,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  /// 位置座標を市区町村レベル（約5km精度）に丸めて返す（プライバシー保護）
+  /// 0.05° 単位に丸める（緯度経度とも約 5.5km グリッド ≈ 市区町村レベル）
+  static (double, double) _roundToWardLevel(double lat, double lng) {
+    const grid = 0.05; // ≈ 5.5 km per step
+    final roundedLat = (lat / grid).round() * grid;
+    final roundedLng = (lng / grid).round() * grid;
+    return (roundedLat, roundedLng);
   }
 
   /// ポストの特定フィールドを更新
@@ -318,13 +349,42 @@ class FirebaseService {
   }
 
   /// 投稿を削除（投稿者本人またはadminのみ）
+  /// 関連する通知も逆引きインデックスを使ってカスケード削除する
   static Future<void> deletePost(String postId) async {
+    // 通知逆引きインデックスを取得して関連通知を削除
+    try {
+      final refs = await _db
+          .collection(_col)
+          .doc(postId)
+          .collection('notif_refs')
+          .get();
+      if (refs.docs.isNotEmpty) {
+        final batch = _db.batch();
+        for (final ref in refs.docs) {
+          final data = ref.data();
+          final userId = data['userId'] as String?;
+          final itemId = data['itemId'] as String?;
+          if (userId != null && itemId != null) {
+            batch.delete(_db
+                .collection('notifications')
+                .doc(userId)
+                .collection('items')
+                .doc(itemId));
+          }
+          batch.delete(ref.reference);
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      debugPrint('[FirebaseService] cascade notification delete failed: $e');
+    }
     await _db.collection(_col).doc(postId).delete();
   }
 
   // ─── 通知 ──────────────────────────────────────────────────────
 
   /// 特定ユーザーへの通知を追加
+  /// postId が指定されている場合、投稿削除時のカスケード用に逆引きインデックスも書き込む
   static Future<void> addNotification({
     required String userId,
     required String type,
@@ -333,11 +393,12 @@ class FirebaseService {
     String? postId,
   }) async {
     if (userId.isEmpty) return;
-    await _db
+    final notifRef = _db
         .collection('notifications')
         .doc(userId)
         .collection('items')
-        .add({
+        .doc();
+    await notifRef.set({
       'type': type,
       'title': title,
       'body': body,
@@ -345,6 +406,18 @@ class FirebaseService {
       'timestamp': FieldValue.serverTimestamp(),
       'isRead': false,
     });
+    // 投稿に紐づく通知は逆引きインデックスへ登録（削除時カスケード用）
+    if (postId != null && postId.isNotEmpty) {
+      try {
+        await _db
+            .collection(_col)
+            .doc(postId)
+            .collection('notif_refs')
+            .add({'userId': userId, 'itemId': notifRef.id});
+      } catch (e) {
+        debugPrint('[FirebaseService] notif_refs write failed: $e');
+      }
+    }
   }
 
   /// ユーザーの通知一覧を取得（最新50件）
@@ -444,10 +517,42 @@ class FirebaseService {
   }
 
 
-  /// ユーザー一覧をFirestoreから取得
-  static Future<List<Map<String, dynamic>>> fetchUsers() async {
-    final snap = await _db.collection('users').get();
-    return snap.docs.map((d) => {'uid': d.id, ...d.data()}).toList();
+  /// ユーザーを名前またはメールのプレフィックスで検索（admin専用）
+  /// Firestore の範囲クエリを使った前方一致検索。最大50件返す。
+  static Future<List<Map<String, dynamic>>> searchUsers(String query) async {
+    if (query.isEmpty) return [];
+    final q = query.trim();
+    final end = q.substring(0, q.length - 1) +
+        String.fromCharCode(q.codeUnitAt(q.length - 1) + 1);
+
+    // 名前とメールで別々に検索してマージ（重複除去）
+    final results = <String, Map<String, dynamic>>{};
+
+    try {
+      final byName = await _db
+          .collection('users')
+          .where('userName', isGreaterThanOrEqualTo: q)
+          .where('userName', isLessThan: end)
+          .limit(50)
+          .get();
+      for (final d in byName.docs) {
+        results[d.id] = {'uid': d.id, ...d.data()};
+      }
+    } catch (_) {}
+
+    try {
+      final byEmail = await _db
+          .collection('users')
+          .where('email', isGreaterThanOrEqualTo: q)
+          .where('email', isLessThan: end)
+          .limit(50)
+          .get();
+      for (final d in byEmail.docs) {
+        results.putIfAbsent(d.id, () => {'uid': d.id, ...d.data()});
+      }
+    } catch (_) {}
+
+    return results.values.toList();
   }
 
   /// FCM デバイストークンを Firestore の users/{uid} に保存

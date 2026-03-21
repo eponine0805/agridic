@@ -227,7 +227,27 @@ class UserPrefs extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    // FCM トークンを Firestore から削除してからサインアウト
     try {
+      final uid = _user?.uid;
+      if (uid != null) {
+        final token = await FirebaseMessaging.instance.getToken();
+        if (token != null) {
+          // tokens サブコレクションから削除
+          await _db
+              .collection('users')
+              .doc(uid)
+              .collection('tokens')
+              .doc(token)
+              .delete();
+          // fcmToken フィールドもクリア
+          await _db
+              .collection('users')
+              .doc(uid)
+              .update({'fcmToken': FieldValue.delete()});
+        }
+        await FirebaseMessaging.instance.deleteToken();
+      }
       await FirebaseMessaging.instance.unsubscribeFromTopic('broadcasts');
     } catch (_) {}
     await _googleSignIn.signOut();

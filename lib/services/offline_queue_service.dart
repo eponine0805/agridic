@@ -39,6 +39,28 @@ class OfflineQueueService {
     return items.isEmpty;
   }
 
+  /// インデックスを指定してキューの1エントリを更新（画像URL反映用）
+  static Future<void> updateAt(int index, Map<String, dynamic> entry) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_key);
+    if (raw == null) return;
+    final list = jsonDecode(raw) as List<dynamic>;
+    if (index < 0 || index >= list.length) return;
+    list[index] = entry;
+    await prefs.setString(_key, jsonEncode(list));
+  }
+
+  /// インデックスを指定してキューの1エントリを削除（成功後の個別削除用）
+  static Future<void> removeAt(int index) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_key);
+    if (raw == null) return;
+    final list = jsonDecode(raw) as List<dynamic>;
+    if (index < 0 || index >= list.length) return;
+    list.removeAt(index);
+    await prefs.setString(_key, jsonEncode(list));
+  }
+
   /// キューを空にする
   static Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
