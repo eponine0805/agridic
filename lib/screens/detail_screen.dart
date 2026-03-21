@@ -1,6 +1,4 @@
-import 'dart:async';
 import 'dart:convert';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -22,24 +20,10 @@ class _DetailScreenState extends State<DetailScreen> {
   late String _activeTab;
   // 一度でも表示したタブを記録（遅延レンダリング用）
   final Set<String> _loadedTabs = {};
-  StreamSubscription? _postDeleteSubscription;
 
   @override
   void initState() {
     super.initState();
-    // 投稿が削除された場合はこの画面を閉じる
-    _postDeleteSubscription = FirebaseFirestore.instance
-        .collection('posts')
-        .doc(widget.post.postId)
-        .snapshots()
-        .listen((snap) {
-      if (!snap.exists && mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('この投稿は削除されました')),
-        );
-      }
-    });
     final available = _availableModes();
     // テキストモードが存在すれば優先、なければ viewMode、なければ最初のもの
     if (available.contains('text')) {
@@ -50,12 +34,6 @@ class _DetailScreenState extends State<DetailScreen> {
       _activeTab = available.isNotEmpty ? available.first : widget.post.viewMode;
     }
     _loadedTabs.add(_activeTab);
-  }
-
-  @override
-  void dispose() {
-    _postDeleteSubscription?.cancel();
-    super.dispose();
   }
 
   /// 実際にコンテンツが入力されているモードのみ返す
@@ -145,8 +123,23 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.read<AppState>();
+    final state = context.watch<AppState>();
     final prefs = context.read<UserPrefs>();
+
+    // AppState のメモリ上のリストから投稿が消えていたら自動で閉じる
+    // Firestore ストリームは使わず追加読み取り 0
+    final postExists = state.posts.any((p) => p.postId == widget.post.postId);
+    if (!postExists && state.posts.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('この投稿は削除されました')),
+          );
+        }
+      });
+    }
+
     final available = _availableModes();
     final showTabs = available.length > 1;
     final canEdit = !widget.post.isOfficial &&
