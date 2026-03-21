@@ -46,7 +46,7 @@ class AgridicApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Agridic',
+      title: 'Agridict',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
@@ -240,7 +240,7 @@ class _MainShellState extends State<MainShell> {
           const Icon(Icons.eco, color: Colors.white, size: 24),
           const SizedBox(width: 8),
           Text(
-            'Agridic',
+            'Agridict',
             style: GoogleFonts.outfit(
               fontSize: 20,
               fontWeight: FontWeight.bold,

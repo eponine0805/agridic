@@ -125,7 +125,7 @@ class _LoginScreenState extends State<LoginScreen>
                   const Icon(Icons.eco, color: AppColors.primary, size: 36),
                   const SizedBox(width: 10),
                   Text(
-                    'Agridic',
+                    'Agridict',
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                           color: AppColors.primaryDark,
                           fontWeight: FontWeight.bold,

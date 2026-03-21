@@ -616,7 +616,7 @@ class FirebaseService {
         postId: 'off_blight',
         isOfficial: true,
         userRole: 'expert',
-        userName: 'Agridic Official',
+        userName: 'Agridict Official',
         postType: 'report',
         content: const PostContent(
           textShort: 'Tomato Late Blight alert [Tomato] — Kiambu County',
