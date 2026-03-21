@@ -252,6 +252,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           timestamp: DateTime.now(),
           location: _resolvedLocation,
           dictTags: _tags,
+          postType: 'tweet',
         ),
         // オフライン時: ローカルパスを渡す → オンライン復帰時に自動アップロード
         localTweetImagePath:
@@ -337,6 +338,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         viewMode: _activeMode,
         dictCrop: crop,
         dictTags: _tags,
+        postType: 'report',
       ));
     }
 

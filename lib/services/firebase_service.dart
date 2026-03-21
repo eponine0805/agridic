@@ -68,14 +68,22 @@ class FirebaseService {
   static Future<bool> seedDemoData() async {
     final existing = await _db.collection(_col).limit(1).get();
     if (existing.docs.isNotEmpty) return false;
+    await _writeDemoData();
+    return true;
+  }
 
+  /// デモデータを強制投入（既存データがあっても上書き）— デバッグ用
+  static Future<void> forceSeedDemoData() async {
+    await _writeDemoData();
+  }
+
+  static Future<void> _writeDemoData() async {
     final batch = _db.batch();
     for (final post in _demoData()) {
       final ref = _db.collection(_col).doc(post.postId);
       batch.set(ref, post.toFirestore());
     }
     await batch.commit();
-    return true;
   }
 
   // ─── いいね ──────────────────────────────────────────────────
@@ -263,27 +271,50 @@ class FirebaseService {
   }
 
   /// 特定ユーザーの投稿をページネーションで取得
+  /// インデックス未デプロイ時はクライアントソートにフォールバック
   static Future<({List<Post> posts, DocumentSnapshot? lastDoc})>
       fetchPostsByUser({
     required String userId,
     DocumentSnapshot? after,
     int limit = 20,
   }) async {
-    var query = _db
-        .collection(_col)
-        .where('userId', isEqualTo: userId)
-        .orderBy('timestamp', descending: true)
-        .limit(limit);
-    if (after != null) query = query.startAfterDocument(after);
-    final snap = await query.get();
-    final posts = snap.docs
-        .map((d) => Post.fromFirestore(d))
-        .where((p) => !p.isHidden)
-        .toList();
-    return (
-      posts: posts,
-      lastDoc: snap.docs.isNotEmpty ? snap.docs.last : null,
-    );
+    try {
+      var query = _db
+          .collection(_col)
+          .where('userId', isEqualTo: userId)
+          .orderBy('timestamp', descending: true)
+          .limit(limit);
+      if (after != null) query = query.startAfterDocument(after);
+      final snap = await query.get();
+      final posts = snap.docs
+          .map((d) => Post.fromFirestore(d))
+          .where((p) => !p.isHidden)
+          .toList();
+      return (
+        posts: posts,
+        lastDoc: snap.docs.isNotEmpty ? snap.docs.last : null,
+      );
+    } catch (e) {
+      // Firestoreの複合インデックス未デプロイ時のフォールバック
+      // orderByなしで取得してクライアント側でソート
+      debugPrint('[FirebaseService] fetchPostsByUser index error, fallback: $e');
+      var query = _db
+          .collection(_col)
+          .where('userId', isEqualTo: userId)
+          .limit(limit);
+      if (after != null) query = query.startAfterDocument(after);
+      final snap = await query.get();
+      final posts = snap.docs
+          .map((d) => Post.fromFirestore(d))
+          .where((p) => !p.isHidden)
+          .toList()
+        ..sort((a, b) => (b.timestamp ?? DateTime(0))
+            .compareTo(a.timestamp ?? DateTime(0)));
+      return (
+        posts: posts,
+        lastDoc: snap.docs.isNotEmpty ? snap.docs.last : null,
+      );
+    }
   }
 
   /// 投稿を削除（投稿者本人またはadminのみ）
@@ -433,6 +464,7 @@ class FirebaseService {
         isOfficial: true,
         userRole: 'expert',
         userName: 'Extension Officer',
+        postType: 'report',
         content: const PostContent(
           textShort: 'Maize Stem Borer Alert & Control [Maize] — Gatanga',
           textFull: '## Maize Stem Borer — Alert & Control\n'
@@ -485,6 +517,7 @@ class FirebaseService {
         isOfficial: true,
         userRole: 'expert',
         userName: 'Extension Officer',
+        postType: 'report',
         content: const PostContent(
           textShort: "Maize Growing Guide [Maize] — Gatanga, Murang'a County",
           textFull: '## Maize Growing Guide\n'
@@ -541,6 +574,7 @@ class FirebaseService {
         isOfficial: true,
         userRole: 'expert',
         userName: 'Min. of Agriculture',
+        postType: 'report',
         content: const PostContent(
           textShort: "Fall Armyworm (FAW) outbreak confirmed [Maize] — Nakuru / spreading to Murang'a",
           textFull: '## Fall Armyworm (FAW) Outbreak\n'
@@ -583,6 +617,7 @@ class FirebaseService {
         isOfficial: true,
         userRole: 'expert',
         userName: 'Agridic Official',
+        postType: 'report',
         content: const PostContent(
           textShort: 'Tomato Late Blight alert [Tomato] — Kiambu County',
           textFull: '## Tomato Late Blight Alert\n'
@@ -629,6 +664,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'farmer',
         userName: 'Mary Wanjiku',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               'My maize leaves have small holes and there is sawdust stuff in the whorl. Is this stem borer? Help!',
@@ -643,6 +679,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'expert',
         userName: 'John Kamau',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               "Mary, that sounds like stem borer. Search 'stem borer' on this app for the official guide. Apply Bulldock into the whorl ASAP.",
@@ -658,6 +695,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'farmer',
         userName: 'Grace Njeri',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               'Just planted H614 last week, rains are looking good. Anyone else planting maize in Gatanga?',
@@ -671,6 +709,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'farmer',
         userName: 'Peter Mwangi',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               'When is the best time to apply CAN fertilizer for maize? Plants are about knee height.',
@@ -684,6 +723,7 @@ class FirebaseService {
         isOfficial: false,
         userRole: 'expert',
         userName: 'John Kamau',
+        postType: 'tweet',
         content: const PostContent(
           textShort:
               'Peter, knee height is perfect for 2nd top dressing. 1 tbsp CAN per plant, 10cm from stem. Wait for rain first.',

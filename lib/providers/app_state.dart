@@ -387,6 +387,19 @@ class AppState extends ChangeNotifier {
     return seeded;
   }
 
+  /// デモデータを強制投入してフィードを更新（デバッグ用）
+  Future<void> forceSeedDemoData() async {
+    isSeeding = true;
+    notifyListeners();
+    await FirebaseService.forceSeedDemoData();
+    final result = await FirebaseService.fetchPostsPage();
+    _posts = result.posts;
+    _lastDoc = result.lastDoc;
+    _hasMore = result.posts.length >= 20;
+    isSeeding = false;
+    notifyListeners();
+  }
+
   String formatTime(DateTime? ts) {
     if (ts == null) return '';
     final delta = DateTime.now().difference(ts);

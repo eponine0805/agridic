@@ -26,50 +26,52 @@ class UserPostsScreen extends StatefulWidget {
   State<UserPostsScreen> createState() => _UserPostsScreenState();
 }
 
-class _UserPostsScreenState extends State<UserPostsScreen> {
-  final List<Post> _posts = [];
+class _UserPostsScreenState extends State<UserPostsScreen>
+    with SingleTickerProviderStateMixin {
+  final List<Post> _allPosts = [];
   DocumentSnapshot? _lastDoc;
   bool _loading = true;
   bool _loadingMore = false;
   bool _hasMore = true;
-  final _scrollCtrl = ScrollController();
+  String? _error;
+  late final TabController _tabController;
+
+  List<Post> get _tweets => _allPosts.where((p) => p.isTweet).toList();
+  List<Post> get _reports => _allPosts.where((p) => p.isReport).toList();
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadInitial();
-    _scrollCtrl.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    _scrollCtrl.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
-  void _onScroll() {
-    if (_scrollCtrl.position.pixels >=
-        _scrollCtrl.position.maxScrollExtent - 200) {
-      _loadMore();
-    }
-  }
-
   Future<void> _loadInitial() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final result =
           await FirebaseService.fetchPostsByUser(userId: widget.userId);
-      _posts.addAll(result.posts);
+      _allPosts.addAll(result.posts);
       _lastDoc = result.lastDoc;
       _hasMore = result.posts.length >= 20;
     } catch (e) {
       debugPrint('[UserPostsScreen] loadInitial failed: $e');
+      if (mounted) setState(() => _error = e.toString());
     }
     if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _refresh() async {
-    _posts.clear();
+    _allPosts.clear();
     _lastDoc = null;
     _hasMore = true;
     await _loadInitial();
@@ -84,7 +86,7 @@ class _UserPostsScreenState extends State<UserPostsScreen> {
         after: _lastDoc,
       );
       if (result.posts.isNotEmpty) {
-        _posts.addAll(result.posts);
+        _allPosts.addAll(result.posts);
         _lastDoc = result.lastDoc ?? _lastDoc;
         _hasMore = result.posts.length >= 20;
       } else {
@@ -168,77 +170,127 @@ class _UserPostsScreenState extends State<UserPostsScreen> {
       child: Builder(builder: (context) {
         return Scaffold(
           backgroundColor: AppColors.background,
-          body: CustomScrollView(
-            controller: _scrollCtrl,
-            slivers: [
-              _buildSliverHeader(context),
-              if (_loading)
-                const SliverFillRemaining(
-                  child: Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
-                  ),
-                )
-              else if (_posts.isEmpty)
-                const SliverFillRemaining(
-                  child: Center(
-                    child: Text(
-                      'No posts yet',
-                      style: TextStyle(
-                          fontSize: 14, color: AppColors.textSecondary),
-                    ),
-                  ),
-                )
-              else ...[
-                SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      if (index >= _posts.length) return null;
-                      final post = _posts[index];
-                      return PostCard(
-                        post: post,
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => DetailScreen(post: post)),
-                        ),
-                      );
-                    },
-                    childCount: _posts.length,
-                  ),
-                ),
-                if (_loadingMore)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Center(
-                          child: CircularProgressIndicator(
-                              color: AppColors.primary, strokeWidth: 2)),
-                    ),
-                  )
-                else if (!_hasMore)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      child: Center(
-                        child: Text('— no more posts —',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary)),
-                      ),
-                    ),
-                  ),
-              ],
+          body: NestedScrollView(
+            headerSliverBuilder: (ctx, innerBoxIsScrolled) => [
+              _buildSliverHeader(context, innerBoxIsScrolled),
             ],
+            body: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  )
+                : _error != null
+                    ? _buildErrorState()
+                    : TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildPostList(_tweets, 'No tweets yet'),
+                          _buildPostList(_reports, 'No reports yet'),
+                        ],
+                      ),
           ),
         );
       }),
     );
   }
 
-  Widget _buildSliverHeader(BuildContext context) {
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined,
+                color: AppColors.textSecondary, size: 40),
+            const SizedBox(height: 12),
+            const Text('Could not load posts',
+                style:
+                    TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
+            const SizedBox(height: 4),
+            Text(
+              _error!.contains('index')
+                  ? 'Firestore index not deployed. Run: firebase deploy --only firestore:indexes'
+                  : _error!,
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _refresh,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Retry'),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPostList(List<Post> posts, String emptyLabel) {
+    if (posts.isEmpty) {
+      return Center(
+        child: Text(
+          emptyLabel,
+          style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: AppColors.primary,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (n) {
+          if (n.metrics.pixels >= n.metrics.maxScrollExtent - 200) {
+            _loadMore();
+          }
+          return false;
+        },
+        child: ListView.builder(
+          padding: EdgeInsets.zero,
+          itemCount: posts.length + (_loadingMore ? 1 : (!_hasMore ? 1 : 0)),
+          itemBuilder: (context, index) {
+            if (index >= posts.length) {
+              if (_loadingMore) {
+                return const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(
+                      child: CircularProgressIndicator(
+                          color: AppColors.primary, strokeWidth: 2)),
+                );
+              }
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: Text('— no more posts —',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
+                ),
+              );
+            }
+            final post = posts[index];
+            return PostCard(
+              post: post,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => DetailScreen(post: post)),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSliverHeader(BuildContext context, bool innerBoxIsScrolled) {
     return SliverAppBar(
       expandedHeight: 200,
       pinned: true,
+      forceElevated: innerBoxIsScrolled,
       backgroundColor: AppColors.primary,
       foregroundColor: Colors.white,
       actions: widget.isOwn
@@ -264,17 +316,29 @@ class _UserPostsScreenState extends State<UserPostsScreen> {
                           userName: userPrefs.userName,
                           userBio: userPrefs.userBio,
                           userRole: userPrefs.userRole,
-                          postCount: _posts.length,
+                          tweetCount: _tweets.length,
+                          reportCount: _reports.length,
                         ),
                   )
                 : _ProfileHeader(
                     userName: widget.userName,
                     userBio: '',
                     userRole: '',
-                    postCount: _posts.length,
+                    tweetCount: _tweets.length,
+                    reportCount: _reports.length,
                   ),
           ),
         ),
+      ),
+      bottom: TabBar(
+        controller: _tabController,
+        indicatorColor: Colors.white,
+        labelColor: Colors.white,
+        unselectedLabelColor: Colors.white60,
+        tabs: [
+          Tab(text: 'Tweets (${_tweets.length})'),
+          Tab(text: 'Reports (${_reports.length})'),
+        ],
       ),
     );
   }
@@ -284,13 +348,15 @@ class _ProfileHeader extends StatelessWidget {
   final String userName;
   final String userBio;
   final String userRole;
-  final int postCount;
+  final int tweetCount;
+  final int reportCount;
 
   const _ProfileHeader({
     required this.userName,
     required this.userBio,
     required this.userRole,
-    required this.postCount,
+    required this.tweetCount,
+    required this.reportCount,
   });
 
   Color _roleColor(String role) => switch (role) {
@@ -355,20 +421,12 @@ class _ProfileHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    '$postCount',
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold),
-                  ),
-                  const Text(
-                    'Posts',
-                    style: TextStyle(color: Colors.white70, fontSize: 11),
-                  ),
+                  _CountChip(count: tweetCount, label: 'Tweets'),
+                  const SizedBox(width: 12),
+                  _CountChip(count: reportCount, label: 'Reports'),
                 ],
               ),
             ],
@@ -385,6 +443,32 @@ class _ProfileHeader extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _CountChip extends StatelessWidget {
+  final int count;
+  final String label;
+  const _CountChip({required this.count, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(
+          '$count',
+          style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold),
+        ),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 10),
+        ),
+      ],
     );
   }
 }

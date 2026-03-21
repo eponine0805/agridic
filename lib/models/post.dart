@@ -72,6 +72,8 @@ class Post {
   final String dictCategory;
   final List<String> dictTags;
   final bool inDictionary;
+  /// 'tweet' | 'report' | '' (empty = legacy, inferred from dictCrop)
+  final String postType;
 
   Post({
     required this.postId,
@@ -93,7 +95,14 @@ class Post {
     this.dictCategory = '',
     this.dictTags = const [],
     this.inDictionary = false,
+    this.postType = '',
   });
+
+  /// tweet か report かを判定（postType フィールドが空の旧データに対応）
+  bool get isTweet => postType == 'tweet' ||
+      (postType.isEmpty && dictCrop.isEmpty && content.steps.isEmpty &&
+          content.textFull.isEmpty && content.textFullManual.isEmpty);
+  bool get isReport => !isTweet;
 
   /// オフラインキューのJSONから復元する
   factory Post.fromMap(Map<String, dynamic> m) {
@@ -127,6 +136,7 @@ class Post {
       dictCategory: (m['dictCategory'] ?? '') as String,
       dictTags: List<String>.from(m['dictTags'] ?? []),
       inDictionary: (m['inDictionary'] ?? false) as bool,
+      postType: (m['postType'] ?? '') as String,
     );
   }
 
@@ -160,6 +170,7 @@ class Post {
       dictCategory: (m['dictCategory'] ?? '') as String,
       dictTags: List<String>.from(m['dictTags'] ?? []),
       inDictionary: (m['inDictionary'] ?? false) as bool,
+      postType: (m['postType'] ?? '') as String,
     );
   }
 
@@ -185,6 +196,7 @@ class Post {
         'dictCategory': dictCategory,
         'dictTags': dictTags,
         'inDictionary': inDictionary,
+        'postType': postType,
       };
 
   /// JSON シリアライズ用（オフラインキュー保存）
@@ -209,5 +221,6 @@ class Post {
         'dictCategory': dictCategory,
         'dictTags': dictTags,
         'inDictionary': inDictionary,
+        'postType': postType,
       };
 }

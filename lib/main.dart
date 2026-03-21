@@ -322,20 +322,40 @@ class _MainShellState extends State<MainShell> {
                         seeded ? AppColors.primary : Colors.grey,
                     duration: const Duration(seconds: 3),
                   ));
+                } else if (value == 'force_seed') {
+                  await state.forceSeedDemoData();
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('[Debug] Demo data loaded to Firestore'),
+                    backgroundColor: AppColors.accent,
+                    duration: Duration(seconds: 3),
+                  ));
                 }
               },
               itemBuilder: (_) => [
-                if (userPrefs.isAdmin)
+                if (userPrefs.isAdmin) ...[
                   const PopupMenuItem(
                     value: 'seed',
                     child: Row(
                       children: [
                         Icon(Icons.cloud_upload_outlined, size: 18),
                         SizedBox(width: 8),
-                        Text('Seed demo data'),
+                        Text('Seed demo data (skip if exists)'),
                       ],
                     ),
                   ),
+                  const PopupMenuItem(
+                    value: 'force_seed',
+                    child: Row(
+                      children: [
+                        Icon(Icons.bug_report_outlined, size: 18, color: AppColors.accent),
+                        SizedBox(width: 8),
+                        Text('[Debug] Force load demo data',
+                            style: TextStyle(color: AppColors.accent)),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             );
           },
