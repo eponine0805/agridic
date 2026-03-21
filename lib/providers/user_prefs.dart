@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import '../models/app_notification.dart';
 import '../models/post.dart' show UserRole;
 import '../services/firebase_service.dart';
 
@@ -26,10 +25,8 @@ class UserPrefs extends ChangeNotifier {
   bool _firstDownloadDone = false;
   bool _loading = true;
 
-  // ─── 通知キャッシュ ────────────────────────────────────────────────
+  // ─── 未読いいね数 ─────────────────────────────────────────────────
   int _unreadCount = 0;
-  List<AppNotification>? _cachedNotifications;
-  DateTime? _notifLastLoaded;
 
   bool get isLoading => _loading;
   bool get isLoggedIn => _user != null;
@@ -52,10 +49,6 @@ class UserPrefs extends ChangeNotifier {
   bool get isExpert => role == UserRole.expert || role == UserRole.admin;
   bool get firstDownloadDone => _firstDownloadDone;
   int get unreadCount => _unreadCount;
-  List<AppNotification>? get cachedNotifications => _cachedNotifications;
-  bool get notifCacheValid =>
-      _notifLastLoaded != null &&
-      DateTime.now().difference(_notifLastLoaded!).inMinutes < 5;
 
   UserPrefs() {
     _init();
@@ -71,7 +64,6 @@ class UserPrefs extends ChangeNotifier {
       try {
         if (user != null) {
           await _loadRole(user.uid);
-          await _loadUnreadCount(user.uid);
           await _setupFcm(user.uid);
         } else {
           _fcmTokenRefreshSubscription?.cancel();
@@ -80,8 +72,6 @@ class UserPrefs extends ChangeNotifier {
           _role = 'farmer';
           _bio = '';
           _unreadCount = 0;
-          _cachedNotifications = null;
-          _notifLastLoaded = null;
         }
       } catch (e) {
         debugPrint('[UserPrefs] auth state handler error: $e');
@@ -96,11 +86,13 @@ class UserPrefs extends ChangeNotifier {
     try {
       final doc = await _db.collection('users').doc(uid).get();
       if (doc.exists) {
-        _role = (doc.data()?['role'] ?? 'farmer') as String;
-        _bio = (doc.data()?['bio'] ?? '') as String;
+        final data = doc.data()!;
+        _role = (data['role'] ?? 'farmer') as String;
+        _bio = (data['bio'] ?? '') as String;
+        _unreadCount = (data['newLikeCount'] as int?) ?? 0;
         // 新端末ではローカルにアバターがないので Firestore から復元（_loadRole は既存 read に乗せる）
         if (_avatarBase64.isEmpty) {
-          final remote = (doc.data()?['avatarBase64'] ?? '') as String;
+          final remote = (data['avatarBase64'] ?? '') as String;
           if (remote.isNotEmpty) {
             _avatarBase64 = remote;
             final prefs = await SharedPreferences.getInstance();
@@ -110,6 +102,7 @@ class UserPrefs extends ChangeNotifier {
       } else {
         _role = 'farmer';
         _bio = '';
+        _unreadCount = 0;
       }
     } catch (_) {
       _role = 'farmer';
@@ -153,14 +146,7 @@ class UserPrefs extends ChangeNotifier {
     }
   }
 
-  // ─── 未読数（起動時に1回のみ取得、以降はFCM受信でインクリメント）────
-
-  Future<void> _loadUnreadCount(String uid) async {
-    try {
-      _unreadCount = await FirebaseService.fetchUnreadCount(uid);
-      notifyListeners();
-    } catch (_) {}
-  }
+  // ─── 未読数（起動時に _loadRole と同じ read で取得、以降はFCM受信でインクリメント）────
 
   /// FCMでプッシュ通知を受信した時に呼ぶ（main.dartのforegroundハンドラから）
   void incrementUnreadCount() {
@@ -168,19 +154,13 @@ class UserPrefs extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ─── 通知キャッシュ更新 ───────────────────────────────────────────
-
-  /// 通知一覧をキャッシュとして保存（NotificationsScreen から呼ぶ）
-  void setCachedNotifications(List<AppNotification> list) {
-    _cachedNotifications = list;
-    _notifLastLoaded = DateTime.now();
-    notifyListeners();
-  }
-
-  /// 既読化後に未読数をローカルでリセット
-  void resetUnreadCount() {
+  /// 通知画面を開いた時に呼ぶ（Firestore の newLikeCount もリセット）
+  Future<void> resetLikeCount() async {
     _unreadCount = 0;
     notifyListeners();
+    try {
+      await FirebaseService.resetLikeCount(_user!.uid);
+    } catch (_) {}
   }
 
   // ─── 認証 ─────────────────────────────────────────────────────────

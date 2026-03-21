@@ -366,15 +366,9 @@ class AppState extends ChangeNotifier {
 
     try {
       await FirebaseService.toggleLike(postId, userId, alreadyLiked);
-      // いいね追加時に通知を作成（自分の投稿でない場合のみ）
+      // いいね追加時にカウンターをインクリメント（自分の投稿でない場合のみ）
       if (!alreadyLiked && post.userId != userId) {
-        await FirebaseService.addNotification(
-          userId: post.userId,
-          type: 'like',
-          title: '$likerName がいいねしました',
-          body: post.content.textShort,
-          postId: postId,
-        );
+        await FirebaseService.incrementLikeCount(post.userId);
       }
     } catch (_) {
       // Firestore 失敗時はロールバック（元の post に戻す）

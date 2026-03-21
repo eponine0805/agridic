@@ -407,84 +407,22 @@ class FirebaseService {
 
   // ─── 通知 ──────────────────────────────────────────────────────
 
-  /// 特定ユーザーへの通知を追加
-  /// postId が指定されている場合、投稿削除時のカスケード用に逆引きインデックスも書き込む
-  static Future<void> addNotification({
-    required String userId,
-    required String type,
-    required String title,
-    required String body,
-    String? postId,
-  }) async {
+  /// いいねカウンターをインクリメント（個別ドキュメントではなく users/{uid}.newLikeCount で管理）
+  static Future<void> incrementLikeCount(String userId) async {
     if (userId.isEmpty) return;
-    final notifRef = _db
-        .collection('notifications')
+    await _db
+        .collection('users')
         .doc(userId)
-        .collection('items')
-        .doc();
-    await notifRef.set({
-      'type': type,
-      'title': title,
-      'body': body,
-      if (postId != null) 'postId': postId,
-      'timestamp': FieldValue.serverTimestamp(),
-      'isRead': false,
-    });
-    // 投稿に紐づく通知は逆引きインデックスへ登録（削除時カスケード用）
-    if (postId != null && postId.isNotEmpty) {
-      try {
-        await _db
-            .collection(_col)
-            .doc(postId)
-            .collection('notif_refs')
-            .add({'userId': userId, 'itemId': notifRef.id});
-      } catch (e) {
-        debugPrint('[FirebaseService] notif_refs write failed: $e');
-      }
-    }
+        .update({'newLikeCount': FieldValue.increment(1)});
   }
 
-  /// ユーザーの通知一覧を取得（最新50件）
-  static Future<List<AppNotification>> fetchNotifications(
-      String userId) async {
-    final snap = await _db
-        .collection('notifications')
+  /// いいねカウンターをリセット（通知画面を開いた時に呼ぶ）
+  static Future<void> resetLikeCount(String userId) async {
+    if (userId.isEmpty) return;
+    await _db
+        .collection('users')
         .doc(userId)
-        .collection('items')
-        .orderBy('timestamp', descending: true)
-        .limit(50)
-        .get();
-    return snap.docs
-        .map((d) => AppNotification.fromFirestore(d))
-        .toList();
-  }
-
-  /// 未読通知数を1回だけ取得（ストリームなし）
-  static Future<int> fetchUnreadCount(String userId) async {
-    final snap = await _db
-        .collection('notifications')
-        .doc(userId)
-        .collection('items')
-        .where('isRead', isEqualTo: false)
-        .get();
-    return snap.size;
-  }
-
-  /// 通知を既読にする
-  static Future<void> markNotificationsRead(
-      String userId, List<String> ids) async {
-    final batch = _db.batch();
-    for (final id in ids) {
-      batch.update(
-        _db
-            .collection('notifications')
-            .doc(userId)
-            .collection('items')
-            .doc(id),
-        {'isRead': true},
-      );
-    }
-    await batch.commit();
+        .update({'newLikeCount': 0});
   }
 
   /// 管理者ブロードキャストを送信（broadcastsコレクションに保存）
@@ -499,27 +437,6 @@ class FirebaseService {
       'sentBy': sentBy,
       'timestamp': FieldValue.serverTimestamp(),
     });
-  }
-
-  /// 管理者ブロードキャスト一覧を取得（最新20件）
-  static Future<List<AppNotification>> fetchBroadcasts() async {
-    final snap = await _db
-        .collection('broadcasts')
-        .orderBy('timestamp', descending: true)
-        .limit(20)
-        .get();
-    return snap.docs
-        .map((d) => AppNotification.fromMap(d.id, d.data()))
-        .toList();
-  }
-
-  /// ブロードキャストの未読数をストリームで取得（最新ブロードキャストのタイムスタンプと比較）
-  static Stream<int> streamUnreadBroadcastCount(DateTime lastRead) {
-    return _db
-        .collection('broadcasts')
-        .where('timestamp', isGreaterThan: Timestamp.fromDate(lastRead))
-        .snapshots()
-        .map((snap) => snap.size);
   }
 
   // ─── ユーザー管理 ──────────────────────────────────────────────
