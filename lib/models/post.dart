@@ -62,10 +62,10 @@ class Post {
   final (double, double)? location;
   final DateTime? timestamp;
   final bool isVerified;
-  int reports;
-  bool isHidden;
-  int likes;
-  List<String> likedBy;
+  final int reports;
+  final bool isHidden;
+  final int likes;
+  final List<String> likedBy;
   final double distanceKm;
   final String viewMode;
   final String dictCrop;
@@ -100,6 +100,36 @@ class Post {
     this.postType = '',
     this.avatarBase64 = '',
   });
+
+  Post copyWith({
+    int? likes,
+    List<String>? likedBy,
+    bool? isHidden,
+    int? reports,
+  }) =>
+      Post(
+        postId: postId,
+        userId: userId,
+        isOfficial: isOfficial,
+        userRole: userRole,
+        userName: userName,
+        content: content,
+        location: location,
+        timestamp: timestamp,
+        isVerified: isVerified,
+        reports: reports ?? this.reports,
+        isHidden: isHidden ?? this.isHidden,
+        likes: likes ?? this.likes,
+        likedBy: likedBy ?? this.likedBy,
+        distanceKm: distanceKm,
+        viewMode: viewMode,
+        dictCrop: dictCrop,
+        dictCategory: dictCategory,
+        dictTags: dictTags,
+        inDictionary: inDictionary,
+        postType: postType,
+        avatarBase64: avatarBase64,
+      );
 
   /// tweet か report かを判定（postType フィールドが空の旧データに対応）
   bool get isTweet => postType == 'tweet' ||

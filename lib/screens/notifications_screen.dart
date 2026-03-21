@@ -2,10 +2,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/app_notification.dart';
+import '../models/post.dart';
 import '../providers/app_state.dart';
 import '../providers/user_prefs.dart';
 import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
+import 'detail_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -17,6 +19,7 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   List<AppNotification> _notifications = [];
   bool _loading = true;
+  String? _navigatingPostId; // 投稿フェッチ中のpostId（ローディング表示用）
 
   @override
   void initState() {
@@ -62,6 +65,45 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       debugPrint('[NotificationsScreen] load failed: $e');
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  /// 通知タップ時に対象の投稿詳細画面へ遷移する
+  Future<void> _openPost(String postId) async {
+    if (_navigatingPostId != null) return;
+    setState(() => _navigatingPostId = postId);
+    try {
+      // メモリ上のキャッシュを先に確認して不要な Firestore 読み込みを避ける
+      final appState = context.read<AppState>();
+      Post? post = appState.posts.cast<Post?>().firstWhere(
+            (p) => p?.postId == postId,
+            orElse: () => null,
+          );
+      post ??= await FirebaseService.fetchPostById(postId);
+      if (!mounted) return;
+      if (post == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('投稿が見つかりません（削除済みの可能性があります）'),
+          backgroundColor: AppColors.textSecondary,
+        ));
+        return;
+      }
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MultiProvider(
+            providers: [
+              ChangeNotifierProvider.value(value: appState),
+              ChangeNotifierProvider.value(value: context.read<UserPrefs>()),
+            ],
+            child: DetailScreen(post: post!),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[NotificationsScreen] _openPost failed: $e');
+    } finally {
+      if (mounted) setState(() => _navigatingPostId = null);
+    }
   }
 
   IconData _iconForType(String type) => switch (type) {
@@ -130,6 +172,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       icon: _iconForType(n.type),
                       iconColor: _colorForType(n.type),
                       timeText: _timeAgo(n.timestamp),
+                      isNavigating: _navigatingPostId == n.postId,
+                      onTap: n.postId != null
+                          ? () => _openPost(n.postId!)
+                          : null,
                     );
                   },
                 ),
@@ -142,12 +188,16 @@ class _NotificationTile extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final String timeText;
+  final VoidCallback? onTap;
+  final bool isNavigating;
 
   const _NotificationTile({
     required this.notification,
     required this.icon,
     required this.iconColor,
     required this.timeText,
+    this.onTap,
+    this.isNavigating = false,
   });
 
   @override
@@ -157,6 +207,7 @@ class _NotificationTile extends StatelessWidget {
           ? Colors.transparent
           : AppColors.primary.withOpacity(0.04),
       child: ListTile(
+        onTap: onTap,
         leading: Container(
           width: 40,
           height: 40,
@@ -164,7 +215,13 @@ class _NotificationTile extends StatelessWidget {
             color: iconColor.withOpacity(0.12),
             shape: BoxShape.circle,
           ),
-          child: Icon(icon, color: iconColor, size: 20),
+          child: isNavigating
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      color: AppColors.primary, strokeWidth: 2))
+              : Icon(icon, color: iconColor, size: 20),
         ),
         title: Text(
           notification.title,
@@ -187,9 +244,17 @@ class _NotificationTile extends StatelessWidget {
                     fontSize: 12, color: AppColors.textSecondary),
               ),
             const SizedBox(height: 2),
-            Text(timeText,
-                style: const TextStyle(
-                    fontSize: 11, color: AppColors.textSecondary)),
+            Row(children: [
+              Text(timeText,
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.textSecondary)),
+              if (notification.postId != null) ...[
+                const SizedBox(width: 6),
+                const Text('· 投稿を見る',
+                    style: TextStyle(
+                        fontSize: 11, color: AppColors.primary)),
+              ],
+            ]),
           ],
         ),
         contentPadding:

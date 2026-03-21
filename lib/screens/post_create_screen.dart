@@ -38,6 +38,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   // Shared tags
   final List<String> _tags = [];
   final _tagCtrl = TextEditingController();
+  late final FocusNode _tagFocusNode;
   List<String> _availableTags = [];
 
   // Block lists per mode
@@ -51,6 +52,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   @override
   void initState() {
     super.initState();
+    _tagFocusNode = FocusNode();
     _loadAvailableTags();
   }
 
@@ -73,6 +75,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     _rptCropCtrl.dispose();
     _rptLocationCtrl.dispose();
     _tagCtrl.dispose();
+    _tagFocusNode.dispose();
     // 全ブロックの TextEditingController を dispose
     for (final blocks in _blocks.values) {
       for (final block in blocks) {
@@ -132,20 +135,32 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   // ─── Image ─────────────────────────────────────────────────────────────
 
+  static const _maxImageBytes = 10 * 1024 * 1024; // 10 MB
+
   Future<void> _pickTweetImage() async {
     final file = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (file != null) setState(() => _tweetImageFile = file);
+    if (file == null) return;
+    final size = await file.length();
+    if (size > _maxImageBytes) {
+      if (mounted) _showError('画像が大きすぎます（最大 10MB）');
+      return;
+    }
+    setState(() => _tweetImageFile = file);
   }
 
   Future<void> _pickBlockImage(int blockId) async {
     final file = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (file != null) {
-      setState(() {
-        final block = _currentBlocks.firstWhere((b) => b['id'] == blockId);
-        block['file'] = file;
-        block['ctrl'].text = file.name;
-      });
+    if (file == null) return;
+    final size = await file.length();
+    if (size > _maxImageBytes) {
+      if (mounted) _showError('画像が大きすぎます（最大 10MB）');
+      return;
     }
+    setState(() {
+      final block = _currentBlocks.firstWhere((b) => b['id'] == blockId);
+      block['file'] = file;
+      block['ctrl'].text = file.name;
+    });
   }
 
   // ─── Blocks → text ─────────────────────────────────────────────────────
@@ -461,6 +476,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           controller: _tweetTextCtrl,
           maxLines: 8,
           minLines: 3,
+          maxLength: 500,
           decoration: InputDecoration(
             hintText: "What's happening on your farm?",
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -578,7 +594,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         ],
         RawAutocomplete<String>(
           textEditingController: _tagCtrl,
-          focusNode: FocusNode(),
+          focusNode: _tagFocusNode,
           optionsBuilder: (textEditingValue) {
             final input = textEditingValue.text.trim().toLowerCase();
             if (input.isEmpty) return const [];

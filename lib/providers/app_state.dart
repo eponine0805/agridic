@@ -329,14 +329,18 @@ _setPosts([..._posts, ...result.posts]);
     final post = _posts[idx];
     final alreadyLiked = post.likedBy.contains(userId);
 
-    // ローカルで楽観的更新（Firestore読み込み不要）
-    if (alreadyLiked) {
-      post.likes--;
-      post.likedBy = post.likedBy.where((id) => id != userId).toList();
-    } else {
-      post.likes++;
-      post.likedBy = [...post.likedBy, userId];
-    }
+    // copyWith で新しい Post インスタンスを作って楽観的更新（直接ミューテーションなし）
+    final optimistic = alreadyLiked
+        ? post.copyWith(
+            likes: post.likes - 1,
+            likedBy: post.likedBy.where((id) => id != userId).toList(),
+          )
+        : post.copyWith(
+            likes: post.likes + 1,
+            likedBy: [...post.likedBy, userId],
+          );
+    _posts[idx] = optimistic;
+    _visiblePostsCache = null;
     notifyListeners();
 
     try {
@@ -352,14 +356,9 @@ _setPosts([..._posts, ...result.posts]);
         );
       }
     } catch (_) {
-      // Firestore 失敗時はロールバック
-      if (alreadyLiked) {
-        post.likes++;
-        post.likedBy = [...post.likedBy, userId];
-      } else {
-        post.likes--;
-        post.likedBy = post.likedBy.where((id) => id != userId).toList();
-      }
+      // Firestore 失敗時はロールバック（元の post に戻す）
+      _posts[idx] = post;
+      _visiblePostsCache = null;
       notifyListeners();
     }
   }
