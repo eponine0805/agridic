@@ -11,6 +11,7 @@ import 'screens/dictionary_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/dict_download_screen.dart';
+import 'screens/data_download_screen.dart';
 import 'screens/admin_users_screen.dart';
 import 'screens/admin_analytics_screen.dart';
 import 'screens/user_posts_screen.dart';
@@ -661,14 +662,14 @@ class _ProfileScreenState extends State<_ProfileScreen> {
           const Divider(),
           const SizedBox(height: 8),
           _SettingsTile(
-            icon: Icons.menu_book_outlined,
-            label: 'Re-download dictionary',
+            icon: Icons.download_outlined,
+            label: 'Data downloads',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => ChangeNotifierProvider.value(
                   value: context.read<UserPrefs>(),
-                  child: const DictDownloadScreen(isFirstRun: false),
+                  child: const DataDownloadScreen(isFirstRun: false),
                 ),
               ),
             ),

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
 import '../utils/app_colors.dart';
+import '../services/map_tile_service.dart';
 import 'detail_screen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   Post? _selectedPost;
+  CachedMapTileProvider? _cachedTileProvider;
 
   // Default: Gatanga, Kenya; fallback: Nairobi center
   static const _gatanga = LatLng(-0.95, 36.87);
@@ -32,6 +34,17 @@ class _MapScreenState extends State<MapScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppState>().detectLocation();
     });
+    _initTileProvider();
+  }
+
+  Future<void> _initTileProvider() async {
+    final hasTiles = await MapTileService.hasCachedTiles();
+    if (hasTiles && mounted) {
+      final dirPath = await MapTileService.getDirPath();
+      setState(() {
+        _cachedTileProvider = CachedMapTileProvider(cacheDirPath: dirPath);
+      });
+    }
   }
 
   @override
@@ -144,6 +157,7 @@ class _MapScreenState extends State<MapScreen> {
                           urlTemplate: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
                           userAgentPackageName: 'com.agridic.app',
                           maxZoom: 19,
+                          tileProvider: _cachedTileProvider,
                         ),
                         MarkerLayer(markers: markers),
                       ],
