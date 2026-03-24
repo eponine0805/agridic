@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:excel/excel.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
@@ -103,8 +105,8 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   List<Map<String, dynamic>> get _currentBlocks => _blocks[_activeMode]!;
   int _nextId() => ++_blockCounter;
 
-  void _addBlock(String type, {int? afterId}) {
-    final block = {'id': _nextId(), 'type': type, 'ctrl': TextEditingController()};
+  void _addBlock(String type, {int? afterId, String? text}) {
+    final block = {'id': _nextId(), 'type': type, 'ctrl': TextEditingController(text: text ?? '')};
     setState(() {
       final blocks = _currentBlocks;
       if (afterId != null) {
@@ -112,6 +114,13 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       } else {
         blocks.add(block);
       }
+    });
+  }
+
+  void _toggleBlockType(int id) {
+    setState(() {
+      final block = _currentBlocks.firstWhere((b) => b['id'] == id);
+      block['type'] = block['type'] == 'heading' ? 'text' : 'heading';
     });
   }
 
@@ -193,6 +202,58 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       block['file'] = file;
       block['ctrl'].text = file.name;
     });
+  }
+
+  // ─── Excel import ──────────────────────────────────────────────────────
+
+  Future<void> _importFromExcel() async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+        withData: true,
+      );
+    } catch (_) {
+      if (mounted) _showError('ファイル選択に失敗しました');
+      return;
+    }
+    if (result == null || result.files.isEmpty) return;
+    final bytes = result.files.first.bytes;
+    if (bytes == null) {
+      if (mounted) _showError('ファイルを読み込めませんでした');
+      return;
+    }
+    try {
+      final excel = Excel.decodeBytes(bytes);
+      if (excel.tables.isEmpty) {
+        if (mounted) _showError('シートが見つかりませんでした');
+        return;
+      }
+      final sheet = excel.tables.values.first;
+      int added = 0;
+      for (final row in sheet.rows) {
+        if (row.isEmpty) continue;
+        final cell = row.first;
+        if (cell?.value == null) continue;
+        final text = cell!.value.toString().trim();
+        if (text.isEmpty) continue;
+        _addBlock('text', text: text);
+        added++;
+      }
+      if (!mounted) return;
+      if (added == 0) {
+        _showError('取り込めるデータがありませんでした');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('$added 件取り込みました'),
+          backgroundColor: AppColors.primary,
+          duration: const Duration(seconds: 2),
+        ));
+      }
+    } catch (e) {
+      if (mounted) _showError('Excelの読み込みに失敗しました: $e');
+    }
   }
 
   // ─── Blocks → text ─────────────────────────────────────────────────────
@@ -791,6 +852,17 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           _buildModeTab('visual', 'Image-based', Icons.image_outlined),
         ]),
         const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _importFromExcel,
+          icon: const Icon(Icons.table_view_outlined, size: 16),
+          label: const Text('Import Excel (.xlsx)', style: TextStyle(fontSize: 12)),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            side: const BorderSide(color: AppColors.primary),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
+        ),
+        const SizedBox(height: 8),
         _buildBlockEditor(),
       ],
     );
@@ -1021,6 +1093,20 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                     Row(children: [
                       Icon(_blockIcon(type), size: 14, color: borderColor),
                       const Spacer(),
+                      if (type == 'heading' || type == 'text')
+                        Tooltip(
+                          message: type == 'heading' ? 'Switch to text' : 'Switch to heading',
+                          child: IconButton(
+                            icon: Icon(
+                              type == 'heading' ? Icons.text_fields : Icons.title,
+                              size: 14,
+                            ),
+                            onPressed: () => _toggleBlockType(id),
+                            color: AppColors.primary,
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                          ),
+                        ),
                       IconButton(
                         icon: const Icon(Icons.arrow_upward, size: 14),
                         onPressed: () => _moveBlock(id, -1),
