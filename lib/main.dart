@@ -140,10 +140,15 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
   final _homeScrollCtrl = ScrollController();
+  bool _fcmSnackbarShown = false;
 
   @override
   void initState() {
     super.initState();
+    // Show a one-time SnackBar if FCM permission is denied
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<UserPrefs>().addListener(_checkFcmDenied);
+    });
     // フォアグラウンド中にプッシュ通知が届いたら未読数をインクリメント + SnackBar 表示
     FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
@@ -180,8 +185,20 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
+  void _checkFcmDenied() {
+    if (_fcmSnackbarShown) return;
+    if (!context.read<UserPrefs>().fcmPermissionDenied) return;
+    _fcmSnackbarShown = true;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text(
+          'Notifications are disabled. Enable them in Settings to receive alerts.'),
+      duration: Duration(seconds: 6),
+    ));
+  }
+
   @override
   void dispose() {
+    context.read<UserPrefs>().removeListener(_checkFcmDenied);
     _homeScrollCtrl.dispose();
     super.dispose();
   }

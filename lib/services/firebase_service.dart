@@ -96,9 +96,12 @@ class FirebaseService {
   }
 
   /// 既存投稿のコンテンツを更新（投稿者本人または admin 用）
-  static Future<void> editPost(String postId, PostContent content) async {
+  static Future<void> editPost(
+      String postId, PostContent content, String editorUid) async {
     await _db.collection(_col).doc(postId).update({
       'content': content.toMap(),
+      'editedAt': FieldValue.serverTimestamp(),
+      'editedBy': editorUid,
     });
   }
 

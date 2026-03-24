@@ -8,7 +8,7 @@ class OfflineQueueService {
   static const _key = 'offline_post_queue';
 
   /// キューに保存できる投稿の最大件数（端末ストレージ保護）
-  static const maxQueueSize = 20;
+  static const maxQueueSize = 200;
 
   /// キューに投稿を追加
   /// [localTweetImagePath] : ツイート型の添付画像ローカルパス（オフライン時）

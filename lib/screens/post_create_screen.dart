@@ -478,7 +478,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       );
       if (queued == null) {
         setState(() => _submitting = false);
-        if (mounted) _showError('オフラインキューが満杯です（最大 ${OfflineQueueService.maxQueueSize} 件）。接続後にお試しください。');
+        if (mounted) _showError('Offline queue is full (max ${OfflineQueueService.maxQueueSize}). Please retry when online.');
         return;
       }
     } else {
@@ -566,7 +566,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       ));
       if (reportQueued == null) {
         setState(() => _submitting = false);
-        if (mounted) _showError('オフラインキューが満杯です（最大 ${OfflineQueueService.maxQueueSize} 件）。接続後にお試しください。');
+        if (mounted) _showError('Offline queue is full (max ${OfflineQueueService.maxQueueSize}). Please retry when online.');
         return;
       }
     }

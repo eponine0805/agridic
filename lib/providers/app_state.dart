@@ -379,16 +379,19 @@ class AppState extends ChangeNotifier {
   }
 
   /// 投稿のコンテンツをローカル + Firestore で更新（編集用）
-  Future<void> editPost(String postId, PostContent newContent) async {
+  Future<void> editPost(
+      String postId, PostContent newContent, String editorUid) async {
     final idx = _posts.indexWhere((p) => p.postId == postId);
     if (idx < 0) return;
     // 楽観的更新（ロールバック用に元の投稿を退避）
     final original = _posts[idx];
-    _posts[idx] = original.copyWith(content: newContent);
+    final now = DateTime.now();
+    _posts[idx] = original.copyWith(
+        content: newContent, editedAt: now, editedBy: editorUid);
     _visiblePostsCache = null;
     notifyListeners();
     try {
-      await FirebaseService.editPost(postId, newContent);
+      await FirebaseService.editPost(postId, newContent, editorUid);
     } catch (e) {
       // ロールバック
       _posts[idx] = original;

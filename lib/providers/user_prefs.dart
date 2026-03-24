@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -8,11 +9,12 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../models/post.dart' show UserRole;
 import '../services/firebase_service.dart';
 
-class UserPrefs extends ChangeNotifier {
+class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
   static const _keyFirstLoginDone = 'dict_first_download_done';
   static const _keyAvatarBase64 = 'user_avatar_base64';
   static const _keyRole = 'user_role_cached';
   static const _keyBio = 'user_bio_cached';
+  static const _keyUnreadCount = 'user_unread_count';
 
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
@@ -29,6 +31,9 @@ class UserPrefs extends ChangeNotifier {
 
   // ─── 未読いいね数 ─────────────────────────────────────────────────
   int _unreadCount = 0;
+
+  // ─── FCM 権限拒否フラグ ──────────────────────────────────────────
+  bool _fcmPermissionDenied = false;
 
   bool get isLoading => _loading;
   bool get isLoggedIn => _user != null;
@@ -51,8 +56,10 @@ class UserPrefs extends ChangeNotifier {
   bool get isExpert => role == UserRole.expert || role == UserRole.admin;
   bool get firstDownloadDone => _firstDownloadDone;
   int get unreadCount => _unreadCount;
+  bool get fcmPermissionDenied => _fcmPermissionDenied;
 
   UserPrefs() {
+    WidgetsBinding.instance.addObserver(this);
     _init();
   }
 
@@ -63,6 +70,8 @@ class UserPrefs extends ChangeNotifier {
     // Load cached role/bio so offline starts work without Firestore
     _role = prefs.getString(_keyRole) ?? 'farmer';
     _bio = prefs.getString(_keyBio) ?? '';
+    // Persist unread count so force-quit doesn't reset the badge
+    _unreadCount = prefs.getInt(_keyUnreadCount) ?? 0;
 
     // Immediately use locally-cached auth state — works completely offline.
     // Firebase Auth stores credentials on device; currentUser is synchronous.
@@ -90,6 +99,7 @@ class UserPrefs extends ChangeNotifier {
           final sp = await SharedPreferences.getInstance();
           await sp.remove(_keyRole);
           await sp.remove(_keyBio);
+          await sp.remove(_keyUnreadCount);
         }
       } catch (e) {
         debugPrint('[UserPrefs] auth state handler error: $e');
@@ -115,10 +125,11 @@ class UserPrefs extends ChangeNotifier {
             await prefs.setString(_keyAvatarBase64, remote);
           }
         }
-        // Cache role/bio locally for offline startups
+        // Cache role/bio/unread locally for offline startups
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_keyRole, _role);
         await prefs.setString(_keyBio, _bio);
+        await prefs.setInt(_keyUnreadCount, _unreadCount);
         // アクセス解析を記録
         final lastOpenDate = data['lastOpenDate'] as String?;
         FirebaseService.recordAppOpen(uid, lastOpenDate);
@@ -135,6 +146,16 @@ class UserPrefs extends ChangeNotifier {
 
   // ─── FCM セットアップ ──────────────────────────────────────────────
 
+  // ─── App lifecycle: refresh role on foreground resume ────────────────────
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _user != null) {
+      // Single Firestore read on app foreground — refreshes role if changed by admin
+      _loadRole(_user!.uid).then((_) => notifyListeners()).catchError((_) {});
+    }
+  }
+
   Future<void> _setupFcm(String uid) async {
     try {
       // 通知権限をリクエスト（Android 13+ / iOS）
@@ -143,7 +164,11 @@ class UserPrefs extends ChangeNotifier {
         badge: true,
         sound: true,
       );
-      if (settings.authorizationStatus == AuthorizationStatus.denied) return;
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        _fcmPermissionDenied = true;
+        notifyListeners();
+        return;
+      }
 
       // FCM トークンを取得して Firestore に保存
       final token = await FirebaseMessaging.instance.getToken();
@@ -175,12 +200,16 @@ class UserPrefs extends ChangeNotifier {
   void incrementUnreadCount() {
     _unreadCount++;
     notifyListeners();
+    // Persist so force-quit doesn't reset the badge
+    SharedPreferences.getInstance().then((p) => p.setInt(_keyUnreadCount, _unreadCount));
   }
 
   /// 通知画面を開いた時に呼ぶ（Firestore の newLikeCount もリセット）
   Future<void> resetLikeCount() async {
     _unreadCount = 0;
     notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_keyUnreadCount, 0);
     try {
       if (_user != null) await FirebaseService.resetLikeCount(_user!.uid);
     } catch (_) {}
@@ -344,6 +373,7 @@ class UserPrefs extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _fcmTokenRefreshSubscription?.cancel();
     _fcmTokenRefreshDebounce?.cancel();
     super.dispose();

@@ -57,7 +57,8 @@ class _DetailScreenState extends State<DetailScreen> {
     };
   }
 
-  void _showEditSheet(BuildContext context, AppState state) {
+  void _showEditSheet(BuildContext context, AppState state,
+      {required String editorUid}) {
     final shortCtrl = TextEditingController(text: widget.post.content.textShort);
     final fullCtrl = TextEditingController(text: widget.post.content.textFull);
     showModalBottomSheet(
@@ -124,7 +125,8 @@ class _DetailScreenState extends State<DetailScreen> {
                       images: widget.post.content.images,
                       steps: widget.post.content.steps,
                     );
-                    await state.editPost(widget.post.postId, newContent);
+                    await state.editPost(
+                        widget.post.postId, newContent, editorUid);
                   },
                   child: const Text('Save',
                       style: TextStyle(color: Colors.white)),
@@ -291,13 +293,24 @@ class _DetailScreenState extends State<DetailScreen> {
                                 fontSize: 12,
                                 color: Colors.white.withOpacity(0.7)),
                           ),
+                          if (widget.post.editedAt != null) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              'edited',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic,
+                                  color: Colors.white.withOpacity(0.55)),
+                            ),
+                          ],
                           if (canEdit) ...[
                             const SizedBox(width: 4),
                             IconButton(
                               icon: const Icon(Icons.edit_outlined,
                                   color: Colors.white70, size: 18),
-                              onPressed: () =>
-                                  _showEditSheet(context, state),
+                              onPressed: () => _showEditSheet(
+                                  context, state,
+                                  editorUid: prefs.userId),
                               tooltip: 'Edit',
                             ),
                           ],
