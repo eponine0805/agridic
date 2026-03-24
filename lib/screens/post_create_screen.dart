@@ -257,6 +257,167 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     if (result != null) setState(() => _selectedLocation = result);
   }
 
+  // ─── Preview ───────────────────────────────────────────────────────────
+
+  void _showPreview() {
+    final title = _rptTitleCtrl.text.trim();
+    if (title.isEmpty) {
+      _showError('Please add a title before previewing');
+      return;
+    }
+    final (textFull, _, steps) = _blocksToText(_blocks['text']!);
+    final (textManual, manualImages, _) = _blocksToText(_blocks['manual']!);
+    final (textVisual, visualImages, _) = _blocksToText(_blocks['visual']!);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        builder: (ctx, scrollCtrl) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 16, 8, 12),
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.preview_outlined, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('Preview',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header card
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(10),
+                          border: const Border(
+                            left: BorderSide(color: AppColors.primary, width: 3),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title,
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.bold)),
+                            if (_rptCropCtrl.text.trim().isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Row(children: [
+                                const Icon(Icons.eco, size: 14, color: AppColors.primary),
+                                const SizedBox(width: 4),
+                                Text(_rptCropCtrl.text.trim(),
+                                    style: const TextStyle(
+                                        fontSize: 12, color: AppColors.primary)),
+                              ]),
+                            ],
+                            if (_tags.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 4,
+                                runSpacing: 4,
+                                children: _tags.map((t) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.modeActive,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                        color: AppColors.primary.withOpacity(0.3)),
+                                  ),
+                                  child: Text(t,
+                                      style: const TextStyle(
+                                          fontSize: 10,
+                                          color: AppColors.primaryDark)),
+                                )).toList(),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      // Text mode content
+                      if (textFull.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text('Text mode',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary)),
+                        const SizedBox(height: 8),
+                        _PreviewText(text: textFull, steps: steps),
+                      ],
+                      // Manual mode content
+                      if (textManual.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text('Text + Images mode',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary)),
+                        const SizedBox(height: 8),
+                        _PreviewText(text: textManual, steps: const []),
+                      ],
+                      // Visual mode
+                      if (textVisual.isNotEmpty || visualImages.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text('Visual mode',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary)),
+                        const SizedBox(height: 8),
+                        _PreviewText(text: textVisual, steps: const []),
+                      ],
+                      if (textFull.isEmpty && textManual.isEmpty && textVisual.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(
+                            child: Text('No content yet — add some blocks',
+                                style: TextStyle(
+                                    color: AppColors.textSecondary, fontSize: 14)),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ─── Submit ────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
@@ -491,21 +652,39 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: _submitting ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            child: Row(
+              children: [
+                if (_postType == 'report') ...[
+                  OutlinedButton.icon(
+                    onPressed: _showPreview,
+                    icon: const Icon(Icons.preview_outlined, size: 16),
+                    label: const Text('Preview'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.primary),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: _submitting ? null : _submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: _submitting
+                          ? const SizedBox(width: 20, height: 20,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Text('Publish', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
                 ),
-                child: _submitting
-                    ? const SizedBox(width: 20, height: 20,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text('Publish', style: TextStyle(fontSize: 16)),
-              ),
+              ],
             ),
           ),
         ],
@@ -969,6 +1148,110 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     'action_plan' => 'One action step per line…',
     _ => '',
   };
+}
+
+// ─── Preview text widget ───────────────────────────────────────────────────
+
+class _PreviewText extends StatelessWidget {
+  final String text;
+  final List<String> steps;
+  const _PreviewText({required this.text, required this.steps});
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = text.split('\n').where((l) => l.isNotEmpty).toList();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ...lines.map((line) {
+            if (line.startsWith('## ')) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6, top: 4),
+                child: Text(
+                  line.substring(3),
+                  style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary),
+                ),
+              );
+            }
+            if (line.startsWith('- ')) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('• ', style: TextStyle(fontSize: 13)),
+                    Expanded(child: Text(line.substring(2),
+                        style: const TextStyle(fontSize: 13))),
+                  ],
+                ),
+              );
+            }
+            if (RegExp(r'^!\[\d+\]').hasMatch(line)) {
+              return Container(
+                height: 60,
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.modeActive,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Center(
+                  child: Icon(Icons.image_outlined,
+                      color: AppColors.primary, size: 24),
+                ),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(line, style: const TextStyle(fontSize: 13)),
+            );
+          }),
+          if (steps.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text('Action Plan',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primaryDark)),
+            const SizedBox(height: 4),
+            ...steps.asMap().entries.map((e) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 20,
+                    height: 20,
+                    decoration: const BoxDecoration(
+                        color: AppColors.primary, shape: BoxShape.circle),
+                    alignment: Alignment.center,
+                    child: Text('${e.key + 1}',
+                        style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text(e.value,
+                          style: const TextStyle(fontSize: 13))),
+                ],
+              ),
+            )),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 // ─── Location Picker ───────────────────────────────────────────────────────

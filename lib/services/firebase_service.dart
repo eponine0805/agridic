@@ -832,4 +832,20 @@ class FirebaseService {
 
   static String _dateKey(DateTime dt) =>
       '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+
+  /// Returns {tweetCount, reportCount, dictCount, userCount}
+  static Future<Map<String, int>> fetchPostCounts() async {
+    final results = await Future.wait([
+      _db.collection(_col).where('postType', isEqualTo: 'tweet').where('isHidden', isEqualTo: false).count().get(),
+      _db.collection(_col).where('postType', isEqualTo: 'report').where('isHidden', isEqualTo: false).count().get(),
+      _db.collection(_col).where('inDictionary', isEqualTo: true).where('isHidden', isEqualTo: false).count().get(),
+      _db.collection('users').count().get(),
+    ]);
+    return {
+      'tweetCount': results[0].count ?? 0,
+      'reportCount': results[1].count ?? 0,
+      'dictCount': results[2].count ?? 0,
+      'userCount': results[3].count ?? 0,
+    };
+  }
 }

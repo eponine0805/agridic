@@ -16,6 +16,8 @@ import 'screens/admin_analytics_screen.dart';
 import 'screens/user_posts_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'utils/app_colors.dart';
+import 'widgets/avatar_editor.dart';
+import 'widgets/post_card.dart' show AvatarImage;
 
 /// バックグラウンド / 終了状態でのプッシュ通知受信ハンドラ
 /// トップレベル関数でなければならない
@@ -426,44 +428,81 @@ class _ProfileScreenState extends State<_ProfileScreen> {
     final bioCtrl = TextEditingController(text: userPrefs.userBio);
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit profile'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
+      builder: (ctx) => ChangeNotifierProvider.value(
+        value: userPrefs,
+        child: AlertDialog(
+          title: const Text('Edit profile'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Tappable avatar at top of dialog
+                Consumer<UserPrefs>(
+                  builder: (ctx2, prefs, _) => GestureDetector(
+                    onTap: () async {
+                      Navigator.pop(ctx, false);
+                      await showAvatarEditor(context);
+                    },
+                    child: Stack(
+                      alignment: Alignment.bottomRight,
+                      children: [
+                        prefs.avatarBase64.isNotEmpty
+                            ? AvatarImage(base64: prefs.avatarBase64, radius: 36)
+                            : CircleAvatar(
+                                radius: 36,
+                                backgroundColor: AppColors.primary.withOpacity(0.15),
+                                child: const Icon(Icons.person, size: 36, color: AppColors.primary),
+                              ),
+                        Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: const Icon(Icons.edit, color: Colors.white, size: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nameCtrl,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Display name',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: bioCtrl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Bio',
+                    hintText: 'Tell us about yourself…',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: bioCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Bio',
-                hintText: 'Tell us about yourself…',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Save')),
           ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Save')),
-        ],
       ),
     );
     if (confirmed == true && mounted) {
@@ -500,17 +539,37 @@ class _ProfileScreenState extends State<_ProfileScreen> {
         children: [
           const SizedBox(height: 16),
           Center(
-            child: CircleAvatar(
-              radius: 40,
-              backgroundColor: AppColors.primary,
-              child: Text(
-                userPrefs.userName.isNotEmpty
-                    ? userPrefs.userName[0].toUpperCase()
-                    : '?',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold),
+            child: GestureDetector(
+              onTap: () => showAvatarEditor(context),
+              child: Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  userPrefs.avatarBase64.isNotEmpty
+                      ? AvatarImage(base64: userPrefs.avatarBase64, radius: 40)
+                      : CircleAvatar(
+                          radius: 40,
+                          backgroundColor: AppColors.primary,
+                          child: Text(
+                            userPrefs.userName.isNotEmpty
+                                ? userPrefs.userName[0].toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                  Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: const Icon(Icons.camera_alt, color: Colors.white, size: 13),
+                  ),
+                ],
               ),
             ),
           ),

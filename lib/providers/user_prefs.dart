@@ -11,6 +11,8 @@ import '../services/firebase_service.dart';
 class UserPrefs extends ChangeNotifier {
   static const _keyFirstLoginDone = 'dict_first_download_done';
   static const _keyAvatarBase64 = 'user_avatar_base64';
+  static const _keyRole = 'user_role_cached';
+  static const _keyBio = 'user_bio_cached';
 
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
@@ -58,27 +60,41 @@ class UserPrefs extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _firstDownloadDone = prefs.getBool(_keyFirstLoginDone) ?? false;
     _avatarBase64 = prefs.getString(_keyAvatarBase64) ?? '';
+    // Load cached role/bio so offline starts work without Firestore
+    _role = prefs.getString(_keyRole) ?? 'farmer';
+    _bio = prefs.getString(_keyBio) ?? '';
 
+    // Immediately use locally-cached auth state — works completely offline.
+    // Firebase Auth stores credentials on device; currentUser is synchronous.
+    _user = _auth.currentUser;
+    _loading = false;
+    notifyListeners();
+
+    // Background: refresh role/bio from Firestore and set up FCM when online.
+    // Also handles sign-in / sign-out events while the app is running.
     _auth.authStateChanges().listen((user) async {
+      final prevUser = _user;
       _user = user;
       try {
         if (user != null) {
           await _loadRole(user.uid);
           await _setupFcm(user.uid);
-        } else {
+        } else if (prevUser != null) {
+          // Explicit sign-out
           _fcmTokenRefreshSubscription?.cancel();
           _fcmTokenRefreshSubscription = null;
           _fcmTokenRefreshDebounce?.cancel();
           _role = 'farmer';
           _bio = '';
           _unreadCount = 0;
+          final sp = await SharedPreferences.getInstance();
+          await sp.remove(_keyRole);
+          await sp.remove(_keyBio);
         }
       } catch (e) {
         debugPrint('[UserPrefs] auth state handler error: $e');
-      } finally {
-        _loading = false;
-        notifyListeners();
       }
+      notifyListeners();
     });
   }
 
@@ -90,7 +106,7 @@ class UserPrefs extends ChangeNotifier {
         _role = (data['role'] ?? 'farmer') as String;
         _bio = (data['bio'] ?? '') as String;
         _unreadCount = (data['newLikeCount'] as int?) ?? 0;
-        // 新端末ではローカルにアバターがないので Firestore から復元（_loadRole は既存 read に乗せる）
+        // 新端末ではローカルにアバターがないので Firestore から復元
         if (_avatarBase64.isEmpty) {
           final remote = (data['avatarBase64'] ?? '') as String;
           if (remote.isNotEmpty) {
@@ -99,7 +115,11 @@ class UserPrefs extends ChangeNotifier {
             await prefs.setString(_keyAvatarBase64, remote);
           }
         }
-        // アクセス解析を記録（追加の Firestore read なし）
+        // Cache role/bio locally for offline startups
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_keyRole, _role);
+        await prefs.setString(_keyBio, _bio);
+        // アクセス解析を記録
         final lastOpenDate = data['lastOpenDate'] as String?;
         FirebaseService.recordAppOpen(uid, lastOpenDate);
       } else {
@@ -109,8 +129,7 @@ class UserPrefs extends ChangeNotifier {
         FirebaseService.recordAppOpen(uid, null);
       }
     } catch (_) {
-      _role = 'farmer';
-      _bio = '';
+      // Offline or error — keep cached values loaded at startup
     }
   }
 
