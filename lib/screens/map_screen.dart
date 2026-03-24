@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
 import '../utils/app_colors.dart';
+import '../services/map_tile_service.dart';
 import 'detail_screen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -16,8 +17,16 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   Post? _selectedPost;
+  CachedMapTileProvider? _cachedTileProvider;
 
+  // Default: Gatanga, Kenya; fallback: Nairobi center
   static const _gatanga = LatLng(-0.95, 36.87);
+  static const _nairobi = LatLng(-1.286, 36.820);
+
+  // Kenya bounding box (approximate)
+  static bool _isInKenya(double lat, double lng) {
+    return lat >= -5.0 && lat <= 5.0 && lng >= 33.9 && lng <= 42.0;
+  }
 
   @override
   void initState() {
@@ -25,22 +34,40 @@ class _MapScreenState extends State<MapScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppState>().detectLocation();
     });
+    _initTileProvider();
+  }
+
+  Future<void> _initTileProvider() async {
+    final hasTiles = await MapTileService.hasCachedTiles();
+    if (hasTiles && mounted) {
+      final dirPath = await MapTileService.getDirPath();
+      setState(() {
+        _cachedTileProvider = CachedMapTileProvider(cacheDirPath: dirPath);
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, state, _) {
-        final center = state.locationReady
-            ? LatLng(state.currentLocation.$1, state.currentLocation.$2)
-            : _gatanga;
+        final locReady = state.locationReady;
+        final locLat = state.currentLocation.$1;
+        final locLng = state.currentLocation.$2;
+        // If location is outside Kenya, center on Nairobi and hide the "You" marker
+        final outsideKenya = locReady && !_isInKenya(locLat, locLng);
+        final center = locReady && !outsideKenya
+            ? LatLng(locLat, locLng)
+            : outsideKenya
+                ? _nairobi
+                : _gatanga;
 
         final officialPosts = state.visiblePosts.where((p) => p.isOfficial && p.location != null).toList();
         final farmerPosts = state.visiblePosts.where((p) => !p.isOfficial && p.location != null).toList();
 
         final markers = <Marker>[
-          // Current location blue dot
-          if (state.locationReady)
+          // Current location blue dot — only shown when inside Kenya
+          if (locReady && !outsideKenya)
             Marker(
               point: center,
               width: 24,
@@ -97,9 +124,20 @@ class _MapScreenState extends State<MapScreen> {
                             child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                           )
                         else
-                          Text(
-                            '${officialPosts.length} reports',
-                            style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7)),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${officialPosts.length} reports',
+                                style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7)),
+                              ),
+                              if (outsideKenya)
+                                Text(
+                                  'Outside Kenya',
+                                  style: TextStyle(fontSize: 10, color: Colors.white.withOpacity(0.5)),
+                                ),
+                            ],
                           ),
                       ],
                     ),
@@ -119,6 +157,7 @@ class _MapScreenState extends State<MapScreen> {
                           urlTemplate: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
                           userAgentPackageName: 'com.agridic.app',
                           maxZoom: 19,
+                          tileProvider: _cachedTileProvider,
                         ),
                         MarkerLayer(markers: markers),
                       ],

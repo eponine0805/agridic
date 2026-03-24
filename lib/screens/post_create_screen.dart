@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:excel/excel.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
@@ -103,8 +105,8 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   List<Map<String, dynamic>> get _currentBlocks => _blocks[_activeMode]!;
   int _nextId() => ++_blockCounter;
 
-  void _addBlock(String type, {int? afterId}) {
-    final block = {'id': _nextId(), 'type': type, 'ctrl': TextEditingController()};
+  void _addBlock(String type, {int? afterId, String? text}) {
+    final block = {'id': _nextId(), 'type': type, 'ctrl': TextEditingController(text: text ?? '')};
     setState(() {
       final blocks = _currentBlocks;
       if (afterId != null) {
@@ -112,6 +114,13 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       } else {
         blocks.add(block);
       }
+    });
+  }
+
+  void _toggleBlockType(int id) {
+    setState(() {
+      final block = _currentBlocks.firstWhere((b) => b['id'] == id);
+      block['type'] = block['type'] == 'heading' ? 'text' : 'heading';
     });
   }
 
@@ -195,6 +204,58 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     });
   }
 
+  // ─── Excel import ──────────────────────────────────────────────────────
+
+  Future<void> _importFromExcel() async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['xlsx'],
+        withData: true,
+      );
+    } catch (_) {
+      if (mounted) _showError('ファイル選択に失敗しました');
+      return;
+    }
+    if (result == null || result.files.isEmpty) return;
+    final bytes = result.files.first.bytes;
+    if (bytes == null) {
+      if (mounted) _showError('ファイルを読み込めませんでした');
+      return;
+    }
+    try {
+      final excel = Excel.decodeBytes(bytes);
+      if (excel.tables.isEmpty) {
+        if (mounted) _showError('シートが見つかりませんでした');
+        return;
+      }
+      final sheet = excel.tables.values.first;
+      int added = 0;
+      for (final row in sheet.rows) {
+        if (row.isEmpty) continue;
+        final cell = row.first;
+        if (cell?.value == null) continue;
+        final text = cell!.value.toString().trim();
+        if (text.isEmpty) continue;
+        _addBlock('text', text: text);
+        added++;
+      }
+      if (!mounted) return;
+      if (added == 0) {
+        _showError('取り込めるデータがありませんでした');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('$added 件取り込みました'),
+          backgroundColor: AppColors.primary,
+          duration: const Duration(seconds: 2),
+        ));
+      }
+    } catch (e) {
+      if (mounted) _showError('Excelの読み込みに失敗しました: $e');
+    }
+  }
+
   // ─── Blocks → text ─────────────────────────────────────────────────────
 
   (String, List<String>, List<String>) _blocksToText(List<Map<String, dynamic>> blocks) {
@@ -257,6 +318,167 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     if (result != null) setState(() => _selectedLocation = result);
   }
 
+  // ─── Preview ───────────────────────────────────────────────────────────
+
+  void _showPreview() {
+    final title = _rptTitleCtrl.text.trim();
+    if (title.isEmpty) {
+      _showError('Please add a title before previewing');
+      return;
+    }
+    final (textFull, _, steps) = _blocksToText(_blocks['text']!);
+    final (textManual, manualImages, _) = _blocksToText(_blocks['manual']!);
+    final (textVisual, visualImages, _) = _blocksToText(_blocks['visual']!);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        builder: (ctx, scrollCtrl) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 16, 8, 12),
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.preview_outlined, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('Preview',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollCtrl,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header card
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(10),
+                          border: const Border(
+                            left: BorderSide(color: AppColors.primary, width: 3),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title,
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.bold)),
+                            if (_rptCropCtrl.text.trim().isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Row(children: [
+                                const Icon(Icons.eco, size: 14, color: AppColors.primary),
+                                const SizedBox(width: 4),
+                                Text(_rptCropCtrl.text.trim(),
+                                    style: const TextStyle(
+                                        fontSize: 12, color: AppColors.primary)),
+                              ]),
+                            ],
+                            if (_tags.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 4,
+                                runSpacing: 4,
+                                children: _tags.map((t) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.modeActive,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                        color: AppColors.primary.withOpacity(0.3)),
+                                  ),
+                                  child: Text(t,
+                                      style: const TextStyle(
+                                          fontSize: 10,
+                                          color: AppColors.primaryDark)),
+                                )).toList(),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      // Text mode content
+                      if (textFull.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text('Text mode',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary)),
+                        const SizedBox(height: 8),
+                        _PreviewText(text: textFull, steps: steps),
+                      ],
+                      // Manual mode content
+                      if (textManual.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text('Text + Images mode',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary)),
+                        const SizedBox(height: 8),
+                        _PreviewText(text: textManual, steps: const []),
+                      ],
+                      // Visual mode
+                      if (textVisual.isNotEmpty || visualImages.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Text('Visual mode',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary)),
+                        const SizedBox(height: 8),
+                        _PreviewText(text: textVisual, steps: const []),
+                      ],
+                      if (textFull.isEmpty && textManual.isEmpty && textVisual.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(
+                            child: Text('No content yet — add some blocks',
+                                style: TextStyle(
+                                    color: AppColors.textSecondary, fontSize: 14)),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ─── Submit ────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
@@ -317,7 +539,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       );
       if (queued == null) {
         setState(() => _submitting = false);
-        if (mounted) _showError('オフラインキューが満杯です（最大 ${OfflineQueueService.maxQueueSize} 件）。接続後にお試しください。');
+        if (mounted) _showError('Offline queue is full (max ${OfflineQueueService.maxQueueSize}). Please retry when online.');
         return;
       }
     } else {
@@ -405,7 +627,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       ));
       if (reportQueued == null) {
         setState(() => _submitting = false);
-        if (mounted) _showError('オフラインキューが満杯です（最大 ${OfflineQueueService.maxQueueSize} 件）。接続後にお試しください。');
+        if (mounted) _showError('Offline queue is full (max ${OfflineQueueService.maxQueueSize}). Please retry when online.');
         return;
       }
     }
@@ -491,21 +713,39 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: _submitting ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            child: Row(
+              children: [
+                if (_postType == 'report') ...[
+                  OutlinedButton.icon(
+                    onPressed: _showPreview,
+                    icon: const Icon(Icons.preview_outlined, size: 16),
+                    label: const Text('Preview'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.primary),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: _submitting ? null : _submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: _submitting
+                          ? const SizedBox(width: 20, height: 20,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          : const Text('Publish', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
                 ),
-                child: _submitting
-                    ? const SizedBox(width: 20, height: 20,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text('Publish', style: TextStyle(fontSize: 16)),
-              ),
+              ],
             ),
           ),
         ],
@@ -612,6 +852,17 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           _buildModeTab('visual', 'Image-based', Icons.image_outlined),
         ]),
         const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _importFromExcel,
+          icon: const Icon(Icons.table_view_outlined, size: 16),
+          label: const Text('Import Excel (.xlsx)', style: TextStyle(fontSize: 12)),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            side: const BorderSide(color: AppColors.primary),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          ),
+        ),
+        const SizedBox(height: 8),
         _buildBlockEditor(),
       ],
     );
@@ -826,52 +1077,54 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
           return Column(
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    left: BorderSide(color: borderColor, width: 3),
-                    top: const BorderSide(color: AppColors.divider, width: 0.5),
-                    right: const BorderSide(color: AppColors.divider, width: 0.5),
-                    bottom: const BorderSide(color: AppColors.divider, width: 0.5),
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                child: Column(
-                  children: [
-                    Row(children: [
-                      Icon(_blockIcon(type), size: 14, color: borderColor),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.arrow_upward, size: 14),
-                        onPressed: () => _moveBlock(id, -1),
-                        color: AppColors.textSecondary,
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
+              Stack(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        left: BorderSide(color: borderColor, width: 3),
+                        top: const BorderSide(color: AppColors.divider, width: 0.5),
+                        right: const BorderSide(color: AppColors.divider, width: 0.5),
+                        bottom: const BorderSide(color: AppColors.divider, width: 0.5),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.arrow_downward, size: 14),
-                        onPressed: () => _moveBlock(id, 1),
-                        color: AppColors.textSecondary,
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 14),
-                        onPressed: () => _removeBlock(id),
-                        color: AppColors.danger,
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                      ),
-                    ]),
-                    if (type == 'image') ...[
-                      Row(children: [
-                        Expanded(
-                          child: TextField(
-                            controller: ctrl,
-                            readOnly: true,
-                            decoration: InputDecoration(
-                              hintText: 'Select an image…',
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                    child: Column(
+                      children: [
+                        Row(children: [
+                          Icon(_blockIcon(type), size: 14, color: borderColor),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.arrow_upward, size: 14),
+                            onPressed: () => _moveBlock(id, -1),
+                            color: AppColors.textSecondary,
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.arrow_downward, size: 14),
+                            onPressed: () => _moveBlock(id, 1),
+                            color: AppColors.textSecondary,
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 14),
+                            onPressed: () => _removeBlock(id),
+                            color: AppColors.danger,
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                          ),
+                        ]),
+                        if (type == 'image') ...[
+                          Row(children: [
+                            Expanded(
+                              child: TextField(
+                                controller: ctrl,
+                                readOnly: true,
+                                decoration: InputDecoration(
+                                  hintText: 'Select an image…',
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                               isDense: true,
@@ -913,6 +1166,32 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                       ),
                   ],
                 ),
+              ),
+                  if (type == 'heading' || type == 'text')
+                    Positioned(
+                      bottom: 8,
+                      right: 4,
+                      child: Tooltip(
+                        message: type == 'heading' ? 'Switch to text' : 'Switch to heading',
+                        child: GestureDetector(
+                          onTap: () => _toggleBlockType(id),
+                          child: Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Icon(
+                              type == 'heading' ? Icons.text_fields : Icons.title,
+                              size: 12,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               _buildInsertRow(id),
             ],
@@ -969,6 +1248,110 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     'action_plan' => 'One action step per line…',
     _ => '',
   };
+}
+
+// ─── Preview text widget ───────────────────────────────────────────────────
+
+class _PreviewText extends StatelessWidget {
+  final String text;
+  final List<String> steps;
+  const _PreviewText({required this.text, required this.steps});
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = text.split('\n').where((l) => l.isNotEmpty).toList();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ...lines.map((line) {
+            if (line.startsWith('## ')) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6, top: 4),
+                child: Text(
+                  line.substring(3),
+                  style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary),
+                ),
+              );
+            }
+            if (line.startsWith('- ')) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('• ', style: TextStyle(fontSize: 13)),
+                    Expanded(child: Text(line.substring(2),
+                        style: const TextStyle(fontSize: 13))),
+                  ],
+                ),
+              );
+            }
+            if (RegExp(r'^!\[\d+\]').hasMatch(line)) {
+              return Container(
+                height: 60,
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.modeActive,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Center(
+                  child: Icon(Icons.image_outlined,
+                      color: AppColors.primary, size: 24),
+                ),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(line, style: const TextStyle(fontSize: 13)),
+            );
+          }),
+          if (steps.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text('Action Plan',
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primaryDark)),
+            const SizedBox(height: 4),
+            ...steps.asMap().entries.map((e) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 20,
+                    height: 20,
+                    decoration: const BoxDecoration(
+                        color: AppColors.primary, shape: BoxShape.circle),
+                    alignment: Alignment.center,
+                    child: Text('${e.key + 1}',
+                        style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text(e.value,
+                          style: const TextStyle(fontSize: 13))),
+                ],
+              ),
+            )),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 // ─── Location Picker ───────────────────────────────────────────────────────

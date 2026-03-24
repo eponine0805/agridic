@@ -76,6 +76,10 @@ class Post {
   final String postType;
   /// 投稿者のアバター画像（base64 data URL）— 投稿作成時に埋め込み
   final String avatarBase64;
+  /// 最終編集日時（nullなら未編集）
+  final DateTime? editedAt;
+  /// 最終編集者のUID
+  final String editedBy;
 
   Post({
     required this.postId,
@@ -99,6 +103,8 @@ class Post {
     this.inDictionary = false,
     this.postType = '',
     this.avatarBase64 = '',
+    this.editedAt,
+    this.editedBy = '',
   });
 
   Post copyWith({
@@ -122,6 +128,8 @@ class Post {
     bool? inDictionary,
     String? postType,
     String? avatarBase64,
+    DateTime? editedAt,
+    String? editedBy,
   }) =>
       Post(
         postId: postId,
@@ -145,6 +153,8 @@ class Post {
         inDictionary: inDictionary ?? this.inDictionary,
         postType: postType ?? this.postType,
         avatarBase64: avatarBase64 ?? this.avatarBase64,
+        editedAt: editedAt ?? this.editedAt,
+        editedBy: editedBy ?? this.editedBy,
       );
 
   /// tweet か report かを判定（postType フィールドが空の旧データに対応）
@@ -159,6 +169,9 @@ class Post {
     final ts = m['timestamp'];
     DateTime? timestamp;
     if (ts is String) timestamp = DateTime.tryParse(ts);
+    final ets = m['editedAt'];
+    DateTime? editedAt;
+    if (ets is String) editedAt = DateTime.tryParse(ets);
     return Post(
       postId: (m['postId'] ?? m['id'] ?? '') as String,
       userId: (m['userId'] ?? '') as String,
@@ -187,6 +200,8 @@ class Post {
       inDictionary: (m['inDictionary'] ?? false) as bool,
       postType: (m['postType'] ?? '') as String,
       avatarBase64: (m['avatarBase64'] ?? '') as String,
+      editedAt: editedAt,
+      editedBy: (m['editedBy'] ?? '') as String,
     );
   }
 
@@ -194,6 +209,7 @@ class Post {
     final m = doc.data()!;
     final locMap = m['location'] as Map<String, dynamic>?;
     final ts = m['timestamp'];
+    final ets = m['editedAt'];
     return Post(
       postId: doc.id,
       userId: (m['userId'] ?? '') as String,
@@ -222,6 +238,8 @@ class Post {
       inDictionary: (m['inDictionary'] ?? false) as bool,
       postType: (m['postType'] ?? '') as String,
       avatarBase64: (m['avatarBase64'] ?? '') as String,
+      editedAt: ets is Timestamp ? ets.toDate() : null,
+      editedBy: (m['editedBy'] ?? '') as String,
     );
   }
 
@@ -249,6 +267,8 @@ class Post {
         'inDictionary': inDictionary,
         'postType': postType,
         'avatarBase64': avatarBase64,
+        if (editedAt != null) 'editedAt': Timestamp.fromDate(editedAt!),
+        if (editedBy.isNotEmpty) 'editedBy': editedBy,
       };
 
   /// JSON シリアライズ用（オフラインキュー保存）
@@ -275,5 +295,7 @@ class Post {
         'inDictionary': inDictionary,
         'postType': postType,
         'avatarBase64': avatarBase64,
+        if (editedAt != null) 'editedAt': editedAt!.toIso8601String(),
+        if (editedBy.isNotEmpty) 'editedBy': editedBy,
       };
 }

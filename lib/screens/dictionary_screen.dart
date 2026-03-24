@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
+import '../providers/user_prefs.dart';
 import '../services/dict_local_service.dart';
 import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
@@ -372,6 +373,9 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   Widget _buildReportsList(AppState state, String crop, String category) {
     final reports = _getReports(state, crop, category);
     final emoji = _cropIcons[crop] ?? '🌱';
+    final userPrefs = context.read<UserPrefs>();
+    final isAdmin = userPrefs.isAdmin;
+    final isExpert = userPrefs.isExpert;
     return ListView(
       children: [
         Padding(
@@ -386,14 +390,110 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
             ],
           ),
         ),
-        ...reports.map((p) => _listTile(
-              title: p.content.textShort,
-              subtitle: 'by ${p.userName}',
-              leading: const Icon(Icons.star, size: 18, color: AppColors.verifiedGold),
-              onTap: () => _openDetail(p),
-            )),
+        ...reports.map((p) {
+          return InkWell(
+            onTap: () => _openDetail(p),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: const BoxDecoration(
+                color: AppColors.surface,
+                border: Border(bottom: BorderSide(color: AppColors.divider, width: 0.5)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.star, size: 18, color: AppColors.verifiedGold),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(p.content.textShort,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                        Text('by ${p.userName}',
+                            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                      ],
+                    ),
+                  ),
+                  // Admin/Expert controls
+                  if (isAdmin || isExpert)
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert, size: 18, color: AppColors.textSecondary),
+                      itemBuilder: (_) => [
+                        if (isExpert)
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: Row(children: [
+                              Icon(Icons.edit_outlined, size: 16),
+                              SizedBox(width: 8),
+                              Text('Edit content'),
+                            ]),
+                          ),
+                        if (isAdmin) ...[
+                          PopupMenuItem(
+                            value: 'remove_dict',
+                            child: Row(children: [
+                              Icon(Icons.menu_book_outlined, size: 16, color: AppColors.accent),
+                              const SizedBox(width: 8),
+                              const Text('Remove from dictionary',
+                                  style: TextStyle(color: AppColors.accent)),
+                            ]),
+                          ),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Row(children: [
+                              Icon(Icons.delete_outline, size: 16, color: AppColors.danger),
+                              SizedBox(width: 8),
+                              Text('Delete', style: TextStyle(color: AppColors.danger)),
+                            ]),
+                          ),
+                        ],
+                      ],
+                      onSelected: (v) => _handleReportAction(v, p, state),
+                    )
+                  else
+                    const Icon(Icons.chevron_right, size: 20, color: AppColors.textSecondary),
+                ],
+              ),
+            ),
+          );
+        }),
       ],
     );
+  }
+
+  Future<void> _handleReportAction(String action, Post post, AppState state) async {
+    if (action == 'edit') {
+      _openDetail(post);
+    } else if (action == 'remove_dict') {
+      await FirebaseService.updatePost(post.postId, {'inDictionary': false});
+      await state.reloadPost(post.postId);
+      // Reload local cache
+      await _loadCache();
+      if (mounted) setState(() {});
+    } else if (action == 'delete') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete report'),
+          content: const Text('This will permanently delete the report.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) {
+        await FirebaseService.deletePost(post.postId);
+        state.removePost(post.postId);
+        await _loadCache();
+        if (mounted) setState(() {});
+      }
+    }
   }
 
   Widget _listTile({
@@ -446,7 +546,18 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   }
 
   void _openDetail(Post post) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(post: post)));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: context.read<AppState>()),
+            ChangeNotifierProvider.value(value: context.read<UserPrefs>()),
+          ],
+          child: DetailScreen(post: post),
+        ),
+      ),
+    );
   }
 
   // ─── 管理画面 ────────────────────────────────────────────────────────────

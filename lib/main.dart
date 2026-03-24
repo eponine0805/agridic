@@ -11,11 +11,14 @@ import 'screens/dictionary_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/dict_download_screen.dart';
+import 'screens/data_download_screen.dart';
 import 'screens/admin_users_screen.dart';
 import 'screens/admin_analytics_screen.dart';
 import 'screens/user_posts_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'utils/app_colors.dart';
+import 'widgets/avatar_editor.dart';
+import 'widgets/post_card.dart' show AvatarImage;
 
 /// バックグラウンド / 終了状態でのプッシュ通知受信ハンドラ
 /// トップレベル関数でなければならない
@@ -137,10 +140,15 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
   final _homeScrollCtrl = ScrollController();
+  bool _fcmSnackbarShown = false;
 
   @override
   void initState() {
     super.initState();
+    // Show a one-time SnackBar if FCM permission is denied
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<UserPrefs>().addListener(_checkFcmDenied);
+    });
     // フォアグラウンド中にプッシュ通知が届いたら未読数をインクリメント + SnackBar 表示
     FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
@@ -177,8 +185,20 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
+  void _checkFcmDenied() {
+    if (_fcmSnackbarShown) return;
+    if (!context.read<UserPrefs>().fcmPermissionDenied) return;
+    _fcmSnackbarShown = true;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text(
+          'Notifications are disabled. Enable them in Settings to receive alerts.'),
+      duration: Duration(seconds: 6),
+    ));
+  }
+
   @override
   void dispose() {
+    context.read<UserPrefs>().removeListener(_checkFcmDenied);
     _homeScrollCtrl.dispose();
     super.dispose();
   }
@@ -426,44 +446,81 @@ class _ProfileScreenState extends State<_ProfileScreen> {
     final bioCtrl = TextEditingController(text: userPrefs.userBio);
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Edit profile'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameCtrl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
+      builder: (ctx) => ChangeNotifierProvider.value(
+        value: userPrefs,
+        child: AlertDialog(
+          title: const Text('Edit profile'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Tappable avatar at top of dialog
+                Consumer<UserPrefs>(
+                  builder: (ctx2, prefs, _) => GestureDetector(
+                    onTap: () async {
+                      Navigator.pop(ctx, false);
+                      await showAvatarEditor(context);
+                    },
+                    child: Stack(
+                      alignment: Alignment.bottomRight,
+                      children: [
+                        prefs.avatarBase64.isNotEmpty
+                            ? AvatarImage(base64: prefs.avatarBase64, radius: 36)
+                            : CircleAvatar(
+                                radius: 36,
+                                backgroundColor: AppColors.primary.withOpacity(0.15),
+                                child: const Icon(Icons.person, size: 36, color: AppColors.primary),
+                              ),
+                        Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: const Icon(Icons.edit, color: Colors.white, size: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nameCtrl,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Display name',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: bioCtrl,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Bio',
+                    hintText: 'Tell us about yourself…',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: bioCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Bio',
-                hintText: 'Tell us about yourself…',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Save')),
           ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Save')),
-        ],
       ),
     );
     if (confirmed == true && mounted) {
@@ -500,17 +557,37 @@ class _ProfileScreenState extends State<_ProfileScreen> {
         children: [
           const SizedBox(height: 16),
           Center(
-            child: CircleAvatar(
-              radius: 40,
-              backgroundColor: AppColors.primary,
-              child: Text(
-                userPrefs.userName.isNotEmpty
-                    ? userPrefs.userName[0].toUpperCase()
-                    : '?',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold),
+            child: GestureDetector(
+              onTap: () => showAvatarEditor(context),
+              child: Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  userPrefs.avatarBase64.isNotEmpty
+                      ? AvatarImage(base64: userPrefs.avatarBase64, radius: 40)
+                      : CircleAvatar(
+                          radius: 40,
+                          backgroundColor: AppColors.primary,
+                          child: Text(
+                            userPrefs.userName.isNotEmpty
+                                ? userPrefs.userName[0].toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                  Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: const Icon(Icons.camera_alt, color: Colors.white, size: 13),
+                  ),
+                ],
               ),
             ),
           ),
@@ -602,14 +679,14 @@ class _ProfileScreenState extends State<_ProfileScreen> {
           const Divider(),
           const SizedBox(height: 8),
           _SettingsTile(
-            icon: Icons.menu_book_outlined,
-            label: 'Re-download dictionary',
+            icon: Icons.download_outlined,
+            label: 'Data downloads',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => ChangeNotifierProvider.value(
                   value: context.read<UserPrefs>(),
-                  child: const DictDownloadScreen(isFirstRun: false),
+                  child: const DataDownloadScreen(isFirstRun: false),
                 ),
               ),
             ),

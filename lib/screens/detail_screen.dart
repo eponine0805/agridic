@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/post.dart';
 import '../providers/app_state.dart';
 import '../providers/user_prefs.dart';
+import '../services/firebase_service.dart';
 import '../utils/app_colors.dart';
 import '../widgets/rich_text_content.dart';
 
@@ -56,9 +57,10 @@ class _DetailScreenState extends State<DetailScreen> {
     };
   }
 
-  void _showEditSheet(BuildContext context, AppState state) {
-    final controller =
-        TextEditingController(text: widget.post.content.textShort);
+  void _showEditSheet(BuildContext context, AppState state,
+      {required String editorUid}) {
+    final shortCtrl = TextEditingController(text: widget.post.content.textShort);
+    final fullCtrl = TextEditingController(text: widget.post.content.textFull);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -73,50 +75,151 @@ class _DetailScreenState extends State<DetailScreen> {
             top: 16,
             bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('投稿を編集',
-                  style: TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                maxLength: 500,
-                maxLines: 5,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: '内容を入力...',
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('Edit Post',
+                    style: TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: shortCtrl,
+                  maxLength: 500,
+                  maxLines: 3,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Short description',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary),
-                onPressed: () async {
-                  final newText = controller.text.trim();
-                  if (newText.isEmpty) return;
-                  Navigator.pop(ctx);
-                  final newContent = PostContent(
-                    textShort: newText,
-                    textFull: widget.post.content.textFull,
-                    textFullManual: widget.post.content.textFullManual,
-                    textFullVisual: widget.post.content.textFullVisual,
-                    imageLow: widget.post.content.imageLow,
-                    imageHigh: widget.post.content.imageHigh,
-                    images: widget.post.content.images,
-                    steps: widget.post.content.steps,
-                  );
-                  await state.editPost(widget.post.postId, newContent);
-                },
-                child: const Text('保存',
-                    style: TextStyle(color: Colors.white)),
-              ),
-            ],
+                if (widget.post.isOfficial && widget.post.content.textFull.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: fullCtrl,
+                    maxLines: 8,
+                    decoration: const InputDecoration(
+                      labelText: 'Full text (text mode)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary),
+                  onPressed: () async {
+                    final newText = shortCtrl.text.trim();
+                    if (newText.isEmpty) return;
+                    Navigator.pop(ctx);
+                    final newContent = PostContent(
+                      textShort: newText,
+                      textFull: widget.post.isOfficial
+                          ? fullCtrl.text.trim()
+                          : widget.post.content.textFull,
+                      textFullManual: widget.post.content.textFullManual,
+                      textFullVisual: widget.post.content.textFullVisual,
+                      imageLow: widget.post.content.imageLow,
+                      imageHigh: widget.post.content.imageHigh,
+                      images: widget.post.content.images,
+                      steps: widget.post.content.steps,
+                    );
+                    await state.editPost(
+                        widget.post.postId, newContent, editorUid);
+                  },
+                  child: const Text('Save',
+                      style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            ),
           ),
         );
+      },
+    );
+  }
+
+  Widget _buildAdminMenu(BuildContext context, AppState state, bool canDelete, bool canManageDict) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
+      itemBuilder: (_) => [
+        if (canManageDict) ...[
+          PopupMenuItem(
+            value: 'dict',
+            child: Row(children: [
+              Icon(
+                widget.post.inDictionary ? Icons.menu_book : Icons.menu_book_outlined,
+                size: 16,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                widget.post.inDictionary ? 'Remove from dictionary' : 'Add to dictionary',
+                style: const TextStyle(color: AppColors.primary),
+              ),
+            ]),
+          ),
+          PopupMenuItem(
+            value: 'star',
+            child: Row(children: [
+              Icon(
+                widget.post.isOfficial ? Icons.star : Icons.star_outline,
+                size: 16,
+                color: AppColors.verifiedGold,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                widget.post.isOfficial ? 'Unstar' : 'Star (make official)',
+                style: const TextStyle(color: AppColors.verifiedGold),
+              ),
+            ]),
+          ),
+        ],
+        if (canDelete)
+          const PopupMenuItem(
+            value: 'delete',
+            child: Row(children: [
+              Icon(Icons.delete_outline, size: 16, color: AppColors.danger),
+              SizedBox(width: 8),
+              Text('Delete post', style: TextStyle(color: AppColors.danger)),
+            ]),
+          ),
+      ],
+      onSelected: (v) async {
+        if (v == 'delete') {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Delete post'),
+              content: const Text('This post will be permanently deleted.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Delete'),
+                ),
+              ],
+            ),
+          );
+          if (confirmed == true && context.mounted) {
+            await FirebaseService.deletePost(widget.post.postId);
+            if (context.mounted) {
+              state.removePost(widget.post.postId);
+              Navigator.pop(context);
+            }
+          }
+        } else if (v == 'dict') {
+          await FirebaseService.updatePost(widget.post.postId, {
+            'inDictionary': !widget.post.inDictionary,
+          });
+          if (context.mounted) await state.reloadPost(widget.post.postId);
+        } else if (v == 'star') {
+          await FirebaseService.updatePost(widget.post.postId, {
+            'isOfficial': !widget.post.isOfficial,
+          });
+          if (context.mounted) await state.reloadPost(widget.post.postId);
+        }
       },
     );
   }
@@ -142,8 +245,12 @@ class _DetailScreenState extends State<DetailScreen> {
 
     final available = _availableModes();
     final showTabs = available.length > 1;
-    final canEdit = !widget.post.isOfficial &&
-        widget.post.userId == prefs.userId;
+    // Own post, admin, or expert editing official posts
+    final canEdit = widget.post.userId == prefs.userId ||
+        prefs.isAdmin ||
+        (widget.post.isOfficial && prefs.isExpert);
+    final canDelete = widget.post.userId == prefs.userId || prefs.isAdmin;
+    final canManageDict = prefs.isAdmin;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -186,16 +293,29 @@ class _DetailScreenState extends State<DetailScreen> {
                                 fontSize: 12,
                                 color: Colors.white.withOpacity(0.7)),
                           ),
+                          if (widget.post.editedAt != null) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              'edited',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic,
+                                  color: Colors.white.withOpacity(0.55)),
+                            ),
+                          ],
                           if (canEdit) ...[
                             const SizedBox(width: 4),
                             IconButton(
                               icon: const Icon(Icons.edit_outlined,
                                   color: Colors.white70, size: 18),
-                              onPressed: () =>
-                                  _showEditSheet(context, state),
-                              tooltip: '編集',
+                              onPressed: () => _showEditSheet(
+                                  context, state,
+                                  editorUid: prefs.userId),
+                              tooltip: 'Edit',
                             ),
                           ],
+                          if (canDelete || canManageDict)
+                            _buildAdminMenu(context, state, canDelete, canManageDict),
                         ]),
                       ],
                     ),
@@ -284,9 +404,11 @@ class _DetailScreenState extends State<DetailScreen> {
                   fontSize: 16, color: AppColors.textPrimary)),
           if (widget.post.content.imageLow.isNotEmpty) ...[
             const SizedBox(height: 16),
-            _buildImage(widget.post.content.imageHigh.isNotEmpty
-                ? widget.post.content.imageHigh
-                : widget.post.content.imageLow),
+            // Show low-res initially; tap to open high-res viewer
+            _buildTappableImage(
+              lowUrl: widget.post.content.imageLow,
+              highUrl: widget.post.content.imageHigh,
+            ),
           ],
         ],
       );
@@ -375,6 +497,44 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  /// For tweets: shows low-res, opens full-res viewer on tap
+  Widget _buildTappableImage({required String lowUrl, required String highUrl}) {
+    return GestureDetector(
+      onTap: () {
+        final viewUrl = highUrl.isNotEmpty ? highUrl : lowUrl;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => _FullScreenImageViewer(url: viewUrl),
+          ),
+        );
+      },
+      child: Stack(
+        alignment: Alignment.bottomRight,
+        children: [
+          _buildImage(lowUrl),
+          if (highUrl.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.all(8),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.zoom_in, color: Colors.white, size: 12),
+                  SizedBox(width: 2),
+                  Text('HD', style: TextStyle(color: Colors.white, fontSize: 10)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildImage(String url) {
     if (url.startsWith('data:image')) {
       try {
@@ -430,5 +590,51 @@ class _DetailScreenState extends State<DetailScreen> {
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty)
         .join('\n');
+  }
+}
+
+// ─── Full-screen image viewer ────────────────────────────────────────────────
+
+class _FullScreenImageViewer extends StatelessWidget {
+  final String url;
+  const _FullScreenImageViewer({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          child: url.startsWith('data:image')
+              ? _buildBase64(url)
+              : CachedNetworkImage(
+                  imageUrl: url,
+                  fit: BoxFit.contain,
+                  placeholder: (_, __) => const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                  errorWidget: (_, __, ___) => const Icon(
+                    Icons.broken_image_outlined,
+                    color: Colors.white,
+                    size: 60,
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBase64(String url) {
+    try {
+      final data = url.split(',').last;
+      return Image.memory(base64Decode(data), fit: BoxFit.contain);
+    } catch (_) {
+      return const Icon(Icons.broken_image_outlined, color: Colors.white, size: 60);
+    }
   }
 }

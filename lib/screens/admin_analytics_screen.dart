@@ -12,8 +12,9 @@ class AdminAnalyticsScreen extends StatefulWidget {
 
 class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   List<Map<String, dynamic>> _data = [];
+  Map<String, int> _counts = {};
   bool _loading = true;
-  bool _showUnique = true; // true: ユニークユーザー, false: 起動回数
+  bool _showUnique = true; // true: unique users, false: session opens
 
   @override
   void initState() {
@@ -24,8 +25,16 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final data = await FirebaseService.fetchAnalytics(days: 30);
-      if (mounted) setState(() => _data = data);
+      final results = await Future.wait([
+        FirebaseService.fetchAnalytics(days: 30),
+        FirebaseService.fetchPostCounts(),
+      ]);
+      if (mounted) {
+        setState(() {
+          _data = results[0] as List<Map<String, dynamic>>;
+          _counts = results[1] as Map<String, int>;
+        });
+      }
     } catch (e) {
       debugPrint('[AdminAnalytics] load failed: $e');
     }
@@ -57,6 +66,10 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Content counts
+                  _ContentCountsRow(counts: _counts),
+                  const SizedBox(height: 16),
+                  // Activity summary
                   _SummaryRow(data: _data),
                   const SizedBox(height: 20),
                   _ToggleBar(
@@ -74,7 +87,101 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   }
 }
 
-// ─── 集計サマリー ────────────────────────────────────────────────
+// ─── Content Counts ─────────────────────────────────────────────────────────
+
+class _ContentCountsRow extends StatelessWidget {
+  final Map<String, int> counts;
+  const _ContentCountsRow({required this.counts});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Content',
+          style: TextStyle(
+              fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _CountCard(
+              icon: Icons.chat_bubble_outline,
+              label: 'Tweets',
+              value: '${counts['tweetCount'] ?? 0}',
+              color: AppColors.accent,
+            ),
+            const SizedBox(width: 8),
+            _CountCard(
+              icon: Icons.description_outlined,
+              label: 'Reports',
+              value: '${counts['reportCount'] ?? 0}',
+              color: AppColors.primary,
+            ),
+            const SizedBox(width: 8),
+            _CountCard(
+              icon: Icons.menu_book_outlined,
+              label: 'Dictionary',
+              value: '${counts['dictCount'] ?? 0}',
+              color: AppColors.primaryDark,
+            ),
+            const SizedBox(width: 8),
+            _CountCard(
+              icon: Icons.people_outline,
+              label: 'Users',
+              value: '${counts['userCount'] ?? 0}',
+              color: Colors.blueGrey,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _CountCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+  const _CountCard(
+      {required this.icon,
+      required this.label,
+      required this.value,
+      required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 4),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: color)),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 10, color: AppColors.textSecondary),
+                textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Activity Summary ────────────────────────────────────────────────────────
 
 class _SummaryRow extends StatelessWidget {
   final List<Map<String, dynamic>> data;
@@ -90,15 +197,26 @@ class _SummaryRow extends StatelessWidget {
     final todayOpens = data.isNotEmpty ? (data.last['openCount'] as int) : 0;
     final todayUnique = data.isNotEmpty ? (data.last['uniqueUsers'] as int) : 0;
 
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StatCard(label: '今日の起動', value: '$todayOpens 回'),
-        const SizedBox(width: 10),
-        _StatCard(label: '今日のユーザー', value: '$todayUnique 人'),
-        const SizedBox(width: 10),
-        _StatCard(label: '30日合計起動', value: '$totalOpens 回'),
-        const SizedBox(width: 10),
-        _StatCard(label: '最大DAU', value: '$peakUnique 人'),
+        const Text(
+          'Activity (30 days)',
+          style: TextStyle(
+              fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _StatCard(label: "Today's opens", value: '$todayOpens'),
+            const SizedBox(width: 8),
+            _StatCard(label: "Today's users", value: '$todayUnique'),
+            const SizedBox(width: 8),
+            _StatCard(label: '30-day opens', value: '$totalOpens'),
+            const SizedBox(width: 8),
+            _StatCard(label: 'Peak DAU', value: '$peakUnique'),
+          ],
+        ),
       ],
     );
   }
@@ -138,7 +256,7 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-// ─── 切り替えトグル ──────────────────────────────────────────────
+// ─── Toggle ──────────────────────────────────────────────────────────────────
 
 class _ToggleBar extends StatelessWidget {
   final bool showUnique;
@@ -150,13 +268,13 @@ class _ToggleBar extends StatelessWidget {
     return Row(
       children: [
         _ToggleBtn(
-          label: 'ユニークユーザー数',
+          label: 'Unique Users',
           active: showUnique,
           onTap: () => onChanged(true),
         ),
         const SizedBox(width: 8),
         _ToggleBtn(
-          label: '起動回数',
+          label: 'Session Opens',
           active: !showUnique,
           onTap: () => onChanged(false),
         ),
@@ -197,7 +315,7 @@ class _ToggleBtn extends StatelessWidget {
   }
 }
 
-// ─── グラフ ──────────────────────────────────────────────────────
+// ─── Chart ───────────────────────────────────────────────────────────────────
 
 class _ChartCard extends StatelessWidget {
   final List<Map<String, dynamic>> data;
@@ -210,7 +328,7 @@ class _ChartCard extends StatelessWidget {
       return const SizedBox(
         height: 200,
         child: Center(
-            child: Text('データなし',
+            child: Text('No data',
                 style:
                     TextStyle(color: AppColors.textSecondary, fontSize: 13))),
       );
@@ -301,7 +419,7 @@ class _ChartCard extends StatelessWidget {
                 final date = data[idx]['date'] as String;
                 final parts = date.split('-');
                 return LineTooltipItem(
-                  '${parts[1]}/${parts[2]}\n${s.y.toInt()}${showUnique ? '人' : '回'}',
+                  '${parts[1]}/${parts[2]}\n${s.y.toInt()} ${showUnique ? 'users' : 'opens'}',
                   const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -316,7 +434,7 @@ class _ChartCard extends StatelessWidget {
   }
 }
 
-// ─── データテーブル ──────────────────────────────────────────────
+// ─── Data Table ──────────────────────────────────────────────────────────────
 
 class _DataTable extends StatelessWidget {
   final List<Map<String, dynamic>> data;
@@ -324,7 +442,7 @@ class _DataTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final recent = data.reversed.take(14).toList(); // 直近14日
+    final recent = data.reversed.take(14).toList();
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -336,7 +454,7 @@ class _DataTable extends StatelessWidget {
         children: [
           const Padding(
             padding: EdgeInsets.fromLTRB(14, 12, 14, 6),
-            child: Text('直近14日',
+            child: Text('Last 14 days',
                 style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -357,13 +475,13 @@ class _DataTable extends StatelessWidget {
                               fontSize: 13, color: AppColors.textPrimary)),
                       const Spacer(),
                       _Chip(
-                          label: 'ユーザー',
-                          value: '${d['uniqueUsers']}人',
+                          label: 'Users',
+                          value: '${d['uniqueUsers']}',
                           color: AppColors.primary),
                       const SizedBox(width: 8),
                       _Chip(
-                          label: '起動',
-                          value: '${d['openCount']}回',
+                          label: 'Opens',
+                          value: '${d['openCount']}',
                           color: AppColors.accent),
                     ],
                   ),

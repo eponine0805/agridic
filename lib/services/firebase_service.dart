@@ -96,9 +96,12 @@ class FirebaseService {
   }
 
   /// 既存投稿のコンテンツを更新（投稿者本人または admin 用）
-  static Future<void> editPost(String postId, PostContent content) async {
+  static Future<void> editPost(
+      String postId, PostContent content, String editorUid) async {
     await _db.collection(_col).doc(postId).update({
       'content': content.toMap(),
+      'editedAt': FieldValue.serverTimestamp(),
+      'editedBy': editorUid,
     });
   }
 
@@ -267,17 +270,29 @@ class FirebaseService {
       query =
           query.where('timestamp', isGreaterThan: Timestamp.fromDate(since));
     }
-    final snap = await query.get();
-    return snap.size;
+    final snap = await query.count().get();
+    return snap.count ?? 0;
   }
+
+  // ─── getDictionaryInfo キャッシュ ───────────────────────────────────────
+  static ({int count, int textBytes, int thumbBytes, int fullBytes})? _dictInfoCache;
+  static DateTime? _dictInfoCacheTime;
+  static const _dictInfoCacheDuration = Duration(minutes: 5);
 
   /// 辞書エントリの実バイト数を計算して返す
   /// textBytes: テキストのみのJSONバイト数
   /// thumbBytes: テキスト + サムネイル画像込みの推定バイト数
   /// fullBytes:  テキスト + フル画像込みの推定バイト数
   /// [excludeIds] を渡すとそのIDを除いた差分エントリのみ対象（timestamp でなくIDで比較）
+  /// excludeIds が null の場合は5分間インメモリキャッシュを使用
   static Future<({int count, int textBytes, int thumbBytes, int fullBytes})>
       getDictionaryInfo({Set<String>? excludeIds}) async {
+    if (excludeIds == null &&
+        _dictInfoCache != null &&
+        _dictInfoCacheTime != null &&
+        DateTime.now().difference(_dictInfoCacheTime!) < _dictInfoCacheDuration) {
+      return _dictInfoCache!;
+    }
     final allPosts = await fetchDictionaryPosts();
     final posts = excludeIds != null
         ? allPosts.where((p) => !excludeIds.contains(p.postId)).toList()
@@ -316,12 +331,23 @@ class FirebaseService {
       fullExtra += realImages * 200 * 1024; // フル画像 ~200KB/枚
     }
 
-    return (
+    final result = (
       count: posts.length,
       textBytes: textBytes,
       thumbBytes: textBytes + thumbsExtra,
       fullBytes: textBytes + fullExtra,
     );
+    if (excludeIds == null) {
+      _dictInfoCache = result;
+      _dictInfoCacheTime = DateTime.now();
+    }
+    return result;
+  }
+
+  /// 辞書情報キャッシュを破棄（辞書への書き込み後に呼ぶ）
+  static void invalidateDictInfoCache() {
+    _dictInfoCache = null;
+    _dictInfoCacheTime = null;
   }
 
   /// 特定ユーザーの投稿をページネーションで取得
@@ -832,4 +858,20 @@ class FirebaseService {
 
   static String _dateKey(DateTime dt) =>
       '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+
+  /// Returns {tweetCount, reportCount, dictCount, userCount}
+  static Future<Map<String, int>> fetchPostCounts() async {
+    final results = await Future.wait([
+      _db.collection(_col).where('postType', isEqualTo: 'tweet').where('isHidden', isEqualTo: false).count().get(),
+      _db.collection(_col).where('postType', isEqualTo: 'report').where('isHidden', isEqualTo: false).count().get(),
+      _db.collection(_col).where('inDictionary', isEqualTo: true).where('isHidden', isEqualTo: false).count().get(),
+      _db.collection('users').count().get(),
+    ]);
+    return {
+      'tweetCount': results[0].count ?? 0,
+      'reportCount': results[1].count ?? 0,
+      'dictCount': results[2].count ?? 0,
+      'userCount': results[3].count ?? 0,
+    };
+  }
 }
