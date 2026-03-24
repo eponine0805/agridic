@@ -1077,66 +1077,54 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
           return Column(
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    left: BorderSide(color: borderColor, width: 3),
-                    top: const BorderSide(color: AppColors.divider, width: 0.5),
-                    right: const BorderSide(color: AppColors.divider, width: 0.5),
-                    bottom: const BorderSide(color: AppColors.divider, width: 0.5),
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                child: Column(
-                  children: [
-                    Row(children: [
-                      Icon(_blockIcon(type), size: 14, color: borderColor),
-                      const Spacer(),
-                      if (type == 'heading' || type == 'text')
-                        Tooltip(
-                          message: type == 'heading' ? 'Switch to text' : 'Switch to heading',
-                          child: IconButton(
-                            icon: Icon(
-                              type == 'heading' ? Icons.text_fields : Icons.title,
-                              size: 14,
-                            ),
-                            onPressed: () => _toggleBlockType(id),
-                            color: AppColors.primary,
+              Stack(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        left: BorderSide(color: borderColor, width: 3),
+                        top: const BorderSide(color: AppColors.divider, width: 0.5),
+                        right: const BorderSide(color: AppColors.divider, width: 0.5),
+                        bottom: const BorderSide(color: AppColors.divider, width: 0.5),
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                    child: Column(
+                      children: [
+                        Row(children: [
+                          Icon(_blockIcon(type), size: 14, color: borderColor),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.arrow_upward, size: 14),
+                            onPressed: () => _moveBlock(id, -1),
+                            color: AppColors.textSecondary,
                             visualDensity: VisualDensity.compact,
                             padding: EdgeInsets.zero,
                           ),
-                        ),
-                      IconButton(
-                        icon: const Icon(Icons.arrow_upward, size: 14),
-                        onPressed: () => _moveBlock(id, -1),
-                        color: AppColors.textSecondary,
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.arrow_downward, size: 14),
-                        onPressed: () => _moveBlock(id, 1),
-                        color: AppColors.textSecondary,
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 14),
-                        onPressed: () => _removeBlock(id),
-                        color: AppColors.danger,
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                      ),
-                    ]),
-                    if (type == 'image') ...[
-                      Row(children: [
-                        Expanded(
-                          child: TextField(
-                            controller: ctrl,
-                            readOnly: true,
-                            decoration: InputDecoration(
-                              hintText: 'Select an image…',
+                          IconButton(
+                            icon: const Icon(Icons.arrow_downward, size: 14),
+                            onPressed: () => _moveBlock(id, 1),
+                            color: AppColors.textSecondary,
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 14),
+                            onPressed: () => _removeBlock(id),
+                            color: AppColors.danger,
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                          ),
+                        ]),
+                        if (type == 'image') ...[
+                          Row(children: [
+                            Expanded(
+                              child: TextField(
+                                controller: ctrl,
+                                readOnly: true,
+                                decoration: InputDecoration(
+                                  hintText: 'Select an image…',
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                               isDense: true,
@@ -1178,6 +1166,32 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                       ),
                   ],
                 ),
+              ),
+                  if (type == 'heading' || type == 'text')
+                    Positioned(
+                      bottom: 8,
+                      right: 4,
+                      child: Tooltip(
+                        message: type == 'heading' ? 'Switch to text' : 'Switch to heading',
+                        child: GestureDetector(
+                          onTap: () => _toggleBlockType(id),
+                          child: Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Icon(
+                              type == 'heading' ? Icons.text_fields : Icons.title,
+                              size: 12,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               _buildInsertRow(id),
             ],
