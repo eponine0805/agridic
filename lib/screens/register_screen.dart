@@ -37,7 +37,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return true;
   }
 
-  // ─── Email / Password 登録 ──────────────────────────────────────────
+  // ─── Email / Password registration ──────────────────────────────────────────
 
   Future<void> _registerWithEmail() async {
     if (!_validateName()) return;
@@ -64,7 +64,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     await _goToProfileSetup();
   }
 
-  // ─── Google 登録 ────────────────────────────────────────────────────
+  // ─── Google registration ────────────────────────────────────────────────────
 
   Future<void> _registerWithGoogle() async {
     if (!_validateName()) return;
@@ -77,7 +77,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    // ユーザーが入力した名前でGoogle名を上書き
+    // Overwrite the Google display name with the user-entered name
     final enteredName = _nameCtrl.text.trim();
     if (enteredName.isNotEmpty) {
       await context.read<UserPrefs>().updateDisplayName(enteredName);
@@ -86,7 +86,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     await _goToProfileSetup();
   }
 
-  // ─── プロフィール設定画面へ ──────────────────────────────────────────
+  // ─── Navigate to profile setup screen ──────────────────────────────────────────
 
   Future<void> _goToProfileSetup() async {
     setState(() => _busy = false);
@@ -94,8 +94,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       context,
       MaterialPageRoute(builder: (_) => const RegisterProfileScreen()),
     );
-    // RegisterProfileScreen が popUntil(first) で全部 pop するので
-    // ここには通常戻ってこない
+    // RegisterProfileScreen uses popUntil(first) to pop all routes,
+    // so this code is normally never reached.
   }
 
   // ─── UI ─────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             children: [
               const SizedBox(height: 16),
 
-              // ── ステップ表示 ──
+              // ── Step indicator ──
               Row(
                 children: [
                   _StepChip(step: 1, label: 'Account', active: true),
@@ -132,7 +132,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 28),
 
-              // ── 名前フィールド（必須・どちらの方法でも使用）──
+              // ── Name field (required, used by both sign-up methods) ──
               _field(
                 controller: _nameCtrl,
                 label: 'Display name',
@@ -142,7 +142,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 24),
 
-              // ── Email / Password セクション ──
+              // ── Email / Password section ──
               _sectionLabel('Sign up with email'),
               const SizedBox(height: 12),
               _field(
@@ -166,7 +166,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 onTap: _busy ? null : _registerWithEmail,
               ),
 
-              // ── OR セパレーター ──
+              // ── OR separator ──
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 20),
                 child: Row(
@@ -183,7 +183,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
 
-              // ── Google ボタン ──
+              // ── Google button ──
               SizedBox(
                 height: 48,
                 child: OutlinedButton(
@@ -211,13 +211,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
 
-              // ── エラー表示 ──
+              // ── Error display ──
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 _ErrorBox(message: _error!),
               ],
 
-              // ── ローディング ──
+              // ── Loading ──
               if (_busy) ...[
                 const SizedBox(height: 20),
                 const Center(
@@ -228,7 +228,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
               const SizedBox(height: 32),
 
-              // ── ログインへのリンク ──
+              // ── Link to sign in ──
               Center(
                 child: TextButton(
                   onPressed: () => Navigator.pop(context),
@@ -248,7 +248,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  // ── ヘルパーウィジェット ──────────────────────────────────────────────
+  // ── Helper widgets ──────────────────────────────────────────────
 
   Widget _sectionLabel(String text) {
     return Text(text,

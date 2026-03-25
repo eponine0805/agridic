@@ -7,7 +7,7 @@ import '../providers/user_prefs.dart';
 import '../utils/app_colors.dart';
 import 'post_card.dart';
 
-/// アバター編集ボトムシートを表示し、選択・圧縮・保存まで一括処理する
+/// Shows the avatar editing bottom sheet and handles image selection, compression, and saving.
 Future<void> showAvatarEditor(BuildContext context) async {
   final userPrefs = context.read<UserPrefs>();
   final choice = await showModalBottomSheet<_AvatarChoice>(
@@ -59,7 +59,7 @@ class _AvatarChoiceSheet extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ドラッグハンドル
+          // Drag handle
           Container(
             margin: const EdgeInsets.only(top: 10, bottom: 6),
             width: 36,
@@ -69,7 +69,7 @@ class _AvatarChoiceSheet extends StatelessWidget {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          // プレビュー
+          // Preview
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
             child: Column(

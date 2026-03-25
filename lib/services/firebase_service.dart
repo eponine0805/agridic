@@ -11,8 +11,8 @@ class FirebaseService {
   static final _storage = FirebaseStorage.instance;
   static const _col = 'posts';
 
-  /// [since] より新しい投稿だけ取得（pull-to-refresh 用）
-  /// 新着3件なら3 reads、新着0件なら0 reads
+  /// Fetches only posts newer than [since] (for pull-to-refresh).
+  /// 3 new posts = 3 reads; 0 new posts = 0 reads.
   static Future<List<Post>> fetchPostsSince(DateTime since) async {
     final snap = await _db
         .collection(_col)
@@ -25,8 +25,8 @@ class FirebaseService {
         .toList();
   }
 
-  /// 最新20件を1回取得（ページネーション用）
-  /// [after] に前ページの最後の DocumentSnapshot を渡すと続きを取得
+  /// Fetches one page of up to 20 posts (for pagination).
+  /// Pass the last DocumentSnapshot of the previous page as [after] to get the next page.
   static Future<({List<Post> posts, DocumentSnapshot? lastDoc})> fetchPostsPage({
     DocumentSnapshot? after,
     int limit = 20,
@@ -47,11 +47,11 @@ class FirebaseService {
     );
   }
 
-  /// ポストをFirestoreに保存（新規作成 or 更新）
-  /// 新規投稿に位置情報がある場合:
-  ///  - メインドキュメントには市区町村レベルに丸めた座標を保存（プライバシー保護）
-  ///  - 正確な座標は posts/{id}/private/location サブコレクションに保存（admin のみ参照可）
-  ///  - メインドキュメントと private サブコレクションを Firestore WriteBatch でアトミックに書き込む
+  /// Saves a post to Firestore (create or update).
+  /// For new posts with location data:
+  ///  - The main document stores coordinates rounded to ward/municipality level (privacy protection).
+  ///  - Exact coordinates are stored in the posts/{id}/private/location sub-collection (admin-only access).
+  ///  - The main document and the private sub-collection are written atomically via a Firestore WriteBatch.
   static Future<void> savePost(Post post) async {
     final isNew = post.postId.startsWith('new_');
     final ref = isNew
@@ -60,7 +60,7 @@ class FirebaseService {
 
     final data = post.toFirestore();
 
-    // 新規投稿かつ有効な位置情報あり → 表示用座標を市区町村レベルに丸めて上書き
+    // New post with valid location — overwrite display coordinates rounded to ward level
     final hasValidLocation = isNew &&
         post.location != null &&
         _isValidCoordinate(post.location!.$1, post.location!.$2);
@@ -71,7 +71,7 @@ class FirebaseService {
     }
 
     if (hasValidLocation) {
-      // メインドキュメントと正確座標サブコレクションを1バッチでアトミック書き込み
+      // Write main document and exact-coordinate sub-collection atomically in one batch
       final batch = _db.batch();
       batch.set(ref, data);
       batch.set(ref.collection('private').doc('location'), {
@@ -85,7 +85,7 @@ class FirebaseService {
     }
   }
 
-  /// 座標値が有効な範囲かチェック（NaN / Infinity / 範囲外を弾く）
+  /// Validates that the coordinate is within legal bounds (rejects NaN, Infinity, and out-of-range values).
   static bool _isValidCoordinate(double lat, double lng) {
     return lat.isFinite &&
         lng.isFinite &&
@@ -95,7 +95,7 @@ class FirebaseService {
         lng <= 180;
   }
 
-  /// 既存投稿のコンテンツを更新（投稿者本人または admin 用）
+  /// Updates the content of an existing post (for the post author or an admin).
   static Future<void> editPost(
       String postId, PostContent content, String editorUid) async {
     await _db.collection(_col).doc(postId).update({
@@ -105,8 +105,8 @@ class FirebaseService {
     });
   }
 
-  /// 位置座標を市区町村レベル（約5km精度）に丸めて返す（プライバシー保護）
-  /// 0.05° 単位に丸める（緯度経度とも約 5.5km グリッド ≈ 市区町村レベル）
+  /// Rounds coordinates to ward/municipality level (~5 km precision) for privacy protection.
+  /// Rounds to the nearest 0.05° (~5.5 km grid ≈ ward/municipality level).
   static (double, double) _roundToWardLevel(double lat, double lng) {
     const grid = 0.05; // ≈ 5.5 km per step
     final roundedLat = (lat / grid).round() * grid;
@@ -114,14 +114,14 @@ class FirebaseService {
     return (roundedLat, roundedLng);
   }
 
-  /// ポストの特定フィールドを更新
+  /// Updates specific fields of a post.
   static Future<void> updatePost(
       String postId, Map<String, dynamic> data) async {
     await _db.collection(_col).doc(postId).update(data);
   }
 
-  /// デモデータをFirestoreに投入（既にデータがある場合はスキップ）
-  /// 戻り値: true = 投入した, false = スキップ（既にデータあり）
+  /// Seeds demo data into Firestore (skips if data already exists).
+  /// Returns true if data was seeded, false if skipped (data already present).
   static Future<bool> seedDemoData() async {
     final existing = await _db.collection(_col).limit(1).get();
     if (existing.docs.isNotEmpty) return false;
@@ -129,7 +129,7 @@ class FirebaseService {
     return true;
   }
 
-  /// デモデータを強制投入（既存データがあっても上書き）— デバッグ用
+  /// Force-seeds demo data (overwrites existing data) — for debugging only.
   static Future<void> forceSeedDemoData() async {
     await _writeDemoData();
   }
@@ -143,9 +143,9 @@ class FirebaseService {
     await batch.commit();
   }
 
-  // ─── いいね ──────────────────────────────────────────────────
+  // ─── Likes ──────────────────────────────────────────────────
 
-  /// いいねをトグル（ローカルの既読状態を引数で受け取るためFirestore読み込み不要）
+  /// Toggles a like (takes the current like state as an argument to avoid an extra Firestore read).
   static Future<void> toggleLike(
       String postId, String userId, bool alreadyLiked) async {
     final ref = _db.collection(_col).doc(postId);
@@ -162,16 +162,16 @@ class FirebaseService {
     }
   }
 
-  /// 単一投稿をIDで取得
+  /// Fetches a single post by ID.
   static Future<Post?> fetchPostById(String postId) async {
     final snap = await _db.collection(_col).doc(postId).get();
     if (!snap.exists) return null;
     return Post.fromFirestore(snap);
   }
 
-  // ─── 通報 ──────────────────────────────────────────────────
+  // ─── Reports ──────────────────────────────────────────────────
 
-  /// このユーザーが既に通報済みか確認
+  /// Checks whether this user has already reported the post.
   static Future<bool> hasReported(String postId, String userId) async {
     final snap = await _db
         .collection(_col)
@@ -182,7 +182,7 @@ class FirebaseService {
     return snap.exists;
   }
 
-  /// 通報を記録し、3件以上になったら非表示にする
+  /// Records a report and hides the post once the threshold of 3 reports is reached.
   static Future<void> reportPost(
       String postId, String userId, String reason) async {
     final reportRef = _db
@@ -194,7 +194,7 @@ class FirebaseService {
       'reason': reason,
       'timestamp': FieldValue.serverTimestamp(),
     });
-    // 通報数を確認して閾値を超えたら非表示
+    // Check the total report count and hide the post if the threshold is exceeded
     final reporters = await _db
         .collection(_col)
         .doc(postId)
@@ -205,16 +205,16 @@ class FirebaseService {
     }
   }
 
-  // ─── 画像アップロード ────────────────────────────────────────
+  // ─── Image upload ────────────────────────────────────────
 
-  /// 画像をアップロードする
-  /// low: 超小型サムネイル（150px, q35）をbase64でFirestoreに直接格納 → カード用
-  /// high: Firebase StorageのURL（詳細表示用高解像度）、失敗時は中品質base64（600px, q78）
+  /// Uploads an image.
+  /// low: Tiny thumbnail (150 px, q35) stored as base64 directly in Firestore — used for cards.
+  /// high: Firebase Storage URL (high-res for detail view); falls back to medium-quality base64 (600 px, q78) on failure.
   static Future<({String low, String high})> uploadImage(
       String postId, XFile file) async {
     final rawBytes = await file.readAsBytes();
 
-    // カード用サムネイル: 超小型（表示時は小さいのでここまで落として問題ない）
+    // Card thumbnail: very small (acceptable quality since it is displayed small)
     final thumbBytes = await FlutterImageCompress.compressWithList(
       rawBytes,
       quality: 35,
@@ -224,7 +224,7 @@ class FirebaseService {
     final lowDataUrl =
         'data:image/jpeg;base64,${base64Encode(thumbBytes)}';
 
-    // 詳細表示用: Firebase Storageを試みる
+    // Detail view: attempt Firebase Storage upload
     String highUrl = '';
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -234,7 +234,7 @@ class FirebaseService {
           rawBytes, SettableMetadata(contentType: 'image/jpeg'));
       highUrl = await highRef.getDownloadURL();
     } catch (e) {
-      // Storage未設定時は中品質base64（詳細表示でも十分綺麗）
+      // If Storage is not configured, fall back to medium-quality base64 (looks fine in detail view)
       debugPrint('[FirebaseService] Storage upload failed, falling back to base64: $e');
       final medBytes = await FlutterImageCompress.compressWithList(
         rawBytes,
@@ -248,10 +248,10 @@ class FirebaseService {
     return (low: lowDataUrl, high: highUrl);
   }
 
-  // ─── 辞書ダウンロード ──────────────────────────────────────────
+  // ─── Dictionary download ──────────────────────────────────────────
 
-  /// inDictionary=true のポスト一覧を取得
-  /// [since] を渡すとその日時以降に作成された新規エントリのみ取得（差分ダウンロード用）
+  /// Fetches all posts with inDictionary=true.
+  /// Pass [since] to fetch only entries created after that date (for incremental download).
   static Future<List<Post>> fetchDictionaryPosts({DateTime? since}) async {
     var query = _db.collection(_col).where('inDictionary', isEqualTo: true);
     if (since != null) {
@@ -262,8 +262,8 @@ class FirebaseService {
     return snap.docs.map((d) => Post.fromFirestore(d)).toList();
   }
 
-  /// 辞書エントリ数を取得（サイズ見積もり用）
-  /// [since] を渡すと新規エントリ数のみ返す
+  /// Returns the number of dictionary entries (for size estimation).
+  /// Pass [since] to return only the count of new entries.
   static Future<int> getDictionaryPostCount({DateTime? since}) async {
     var query = _db.collection(_col).where('inDictionary', isEqualTo: true);
     if (since != null) {
@@ -274,17 +274,17 @@ class FirebaseService {
     return snap.count ?? 0;
   }
 
-  // ─── getDictionaryInfo キャッシュ ───────────────────────────────────────
+  // ─── getDictionaryInfo cache ───────────────────────────────────────
   static ({int count, int textBytes, int thumbBytes, int fullBytes})? _dictInfoCache;
   static DateTime? _dictInfoCacheTime;
   static const _dictInfoCacheDuration = Duration(minutes: 5);
 
-  /// 辞書エントリの実バイト数を計算して返す
-  /// textBytes: テキストのみのJSONバイト数
-  /// thumbBytes: テキスト + サムネイル画像込みの推定バイト数
-  /// fullBytes:  テキスト + フル画像込みの推定バイト数
-  /// [excludeIds] を渡すとそのIDを除いた差分エントリのみ対象（timestamp でなくIDで比較）
-  /// excludeIds が null の場合は5分間インメモリキャッシュを使用
+  /// Calculates and returns the actual byte sizes of dictionary entries.
+  /// textBytes: JSON byte size of text only.
+  /// thumbBytes: Estimated byte size including text and thumbnail images.
+  /// fullBytes:  Estimated byte size including text and full-size images.
+  /// Pass [excludeIds] to target only the incremental entries not in that set (compared by ID, not timestamp).
+  /// When excludeIds is null, an in-memory cache valid for 5 minutes is used.
   static Future<({int count, int textBytes, int thumbBytes, int fullBytes})>
       getDictionaryInfo({Set<String>? excludeIds}) async {
     if (excludeIds == null &&
@@ -319,16 +319,16 @@ class FirebaseService {
       };
       textBytes += utf8.encode(jsonEncode(textEntry)).length;
 
-      // imageLow が Firebase Storage URL の場合のみカウント
+      // Only count when imageLow is a Firebase Storage URL
       if (post.content.imageLow.startsWith('http')) {
-        thumbsExtra += 25 * 1024; // 圧縮サムネイル ~25KB
+        thumbsExtra += 25 * 1024; // compressed thumbnail ~25 KB
         fullExtra += 25 * 1024;
       }
-      // フル画像
+      // Full-size images
       final realImages = post.content.images
           .where((img) => img.startsWith('http'))
           .length;
-      fullExtra += realImages * 200 * 1024; // フル画像 ~200KB/枚
+      fullExtra += realImages * 200 * 1024; // full image ~200 KB each
     }
 
     final result = (
@@ -344,14 +344,14 @@ class FirebaseService {
     return result;
   }
 
-  /// 辞書情報キャッシュを破棄（辞書への書き込み後に呼ぶ）
+  /// Invalidates the dictionary info cache (call after any write to the dictionary).
   static void invalidateDictInfoCache() {
     _dictInfoCache = null;
     _dictInfoCacheTime = null;
   }
 
-  /// 特定ユーザーの投稿をページネーションで取得
-  /// インデックス未デプロイ時はクライアントソートにフォールバック
+  /// Fetches a user's posts with pagination.
+  /// Falls back to client-side sorting if the composite index is not yet deployed.
   static Future<({List<Post> posts, DocumentSnapshot? lastDoc})>
       fetchPostsByUser({
     required String userId,
@@ -375,8 +375,8 @@ class FirebaseService {
         lastDoc: snap.docs.isNotEmpty ? snap.docs.last : null,
       );
     } catch (e) {
-      // Firestoreの複合インデックス未デプロイ時のフォールバック
-      // orderByなしで取得してクライアント側でソート
+      // Fallback when the Firestore composite index is not yet deployed:
+      // fetch without orderBy and sort on the client side
       debugPrint('[FirebaseService] fetchPostsByUser index error, fallback: $e');
       var query = _db
           .collection(_col)
@@ -397,10 +397,10 @@ class FirebaseService {
     }
   }
 
-  /// 投稿を削除（投稿者本人またはadminのみ）
-  /// 関連する通知も逆引きインデックスを使ってカスケード削除する
+  /// Deletes a post (post author or admin only).
+  /// Also cascade-deletes related notifications using a reverse-lookup index.
   static Future<void> deletePost(String postId) async {
-    // 通知逆引きインデックスを取得して関連通知を削除
+    // Fetch the notification reverse-lookup index and delete related notifications
     try {
       final refs = await _db
           .collection(_col)
@@ -430,9 +430,9 @@ class FirebaseService {
     await _db.collection(_col).doc(postId).delete();
   }
 
-  // ─── 通知 ──────────────────────────────────────────────────────
+  // ─── Notifications ──────────────────────────────────────────────────────
 
-  /// いいねカウンターをインクリメント（個別ドキュメントではなく users/{uid}.newLikeCount で管理）
+  /// Increments the like counter (managed in users/{uid}.newLikeCount rather than individual documents).
   static Future<void> incrementLikeCount(String userId) async {
     if (userId.isEmpty) return;
     await _db
@@ -441,7 +441,7 @@ class FirebaseService {
         .update({'newLikeCount': FieldValue.increment(1)});
   }
 
-  /// いいねカウンターをリセット（通知画面を開いた時に呼ぶ）
+  /// Resets the like counter (call when the notifications screen is opened).
   static Future<void> resetLikeCount(String userId) async {
     if (userId.isEmpty) return;
     await _db
@@ -450,7 +450,7 @@ class FirebaseService {
         .update({'newLikeCount': 0});
   }
 
-  /// 管理者ブロードキャストを送信（broadcastsコレクションに保存）
+  /// Sends an admin broadcast (stored in the broadcasts collection).
   static Future<void> sendBroadcast({
     required String title,
     required String body,
@@ -464,15 +464,15 @@ class FirebaseService {
     });
   }
 
-  // ─── ユーザー管理 ──────────────────────────────────────────────
+  // ─── User management ──────────────────────────────────────────────
 
-  /// ユーザーのロールを更新（admin専用）
+  /// Updates a user's role (admin only).
   static Future<void> setUserRole(String uid, String role) async {
     await _db.collection('users').doc(uid).set(
         {'role': role}, SetOptions(merge: true));
   }
 
-  /// 全登録ユーザーを admin に昇格する（一括マイグレーション用）
+  /// Promotes all registered users to admin (for bulk migration).
   static Future<void> promoteAllUsersToAdmin() async {
     final snap = await _db.collection('users').get();
     final batch = _db.batch();
@@ -483,15 +483,15 @@ class FirebaseService {
   }
 
 
-  /// ユーザーを名前またはメールのプレフィックスで検索（admin専用）
-  /// Firestore の範囲クエリを使った前方一致検索。最大50件返す。
+  /// Searches users by name or email prefix (admin only).
+  /// Uses Firestore range queries for prefix matching. Returns up to 50 results.
   static Future<List<Map<String, dynamic>>> searchUsers(String query) async {
     if (query.isEmpty) return [];
     final q = query.trim();
     final end = q.substring(0, q.length - 1) +
         String.fromCharCode(q.codeUnitAt(q.length - 1) + 1);
 
-    // 名前とメールで別々に検索してマージ（重複除去）
+    // Search by name and email separately, then merge (deduplicating by uid)
     final results = <String, Map<String, dynamic>>{};
 
     try {
@@ -521,7 +521,7 @@ class FirebaseService {
     return results.values.toList();
   }
 
-  /// FCM デバイストークンを Firestore の users/{uid} に保存
+  /// Saves the FCM device token to users/{uid} in Firestore.
   static Future<void> saveFcmToken(String uid, String token) async {
     await _db.collection('users').doc(uid).set(
         {'fcmToken': token}, SetOptions(merge: true));
@@ -808,19 +808,19 @@ class FirebaseService {
     ];
   }
 
-  // ─── アクセス解析 ──────────────────────────────────────────────
+  // ─── Analytics ────────────────────────────────────────────────
 
-  /// アプリ起動を記録する。
-  /// [lastOpenDate] は users/{uid} から読んだ値（_loadRole で既に取得済み）。
-  /// 今日初めての起動なら uniqueUsers も +1、毎回 openCount を +1。
-  /// 追加の Firestore 読み取りは 0（_loadRole の既存 read に乗せる）。
+  /// Records an app open event.
+  /// [lastOpenDate] is the value read from users/{uid} (already fetched in _loadRole).
+  /// If it's the first open today, also increments uniqueUsers; openCount is incremented every time.
+  /// Zero extra Firestore reads (piggybacks on the existing read in _loadRole).
   static Future<void> recordAppOpen(String uid, String? lastOpenDate) async {
     final today = _dateKey(DateTime.now());
     final ref = _db.collection('analytics').doc(today);
     final isNewDay = lastOpenDate != today;
 
     if (isNewDay) {
-      // 初回起動: openCount + uniqueUsers をインクリメント、lastOpenDate を更新
+      // First open of the day: increment openCount + uniqueUsers and update lastOpenDate
       await Future.wait([
         ref.set(
           {'openCount': FieldValue.increment(1), 'uniqueUsers': FieldValue.increment(1), 'date': today},
@@ -829,7 +829,7 @@ class FirebaseService {
         _db.collection('users').doc(uid).update({'lastOpenDate': today}),
       ]);
     } else {
-      // 同日 2 回目以降: openCount だけインクリメント
+      // Subsequent open on the same day: increment openCount only
       await ref.set(
         {'openCount': FieldValue.increment(1), 'date': today},
         SetOptions(merge: true),
@@ -837,8 +837,8 @@ class FirebaseService {
     }
   }
 
-  /// 過去 [days] 日分のアクセス解析データを取得（管理者専用）。
-  /// [days] 件の Firestore 読み取りが発生する。
+  /// Fetches analytics data for the past [days] days (admin only).
+  /// Incurs [days] Firestore reads.
   static Future<List<Map<String, dynamic>>> fetchAnalytics({int days = 30}) async {
     final now = DateTime.now();
     final futures = List.generate(days, (i) {
@@ -853,7 +853,7 @@ class FirebaseService {
         'openCount': (data['openCount'] as int?) ?? 0,
         'uniqueUsers': (data['uniqueUsers'] as int?) ?? 0,
       };
-    }).toList().reversed.toList(); // 古い順に並べ替え
+    }).toList().reversed.toList(); // sort oldest first
   }
 
   static String _dateKey(DateTime dt) =>

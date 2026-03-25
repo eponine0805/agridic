@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -20,18 +21,18 @@ import 'utils/app_colors.dart';
 import 'widgets/avatar_editor.dart';
 import 'widgets/post_card.dart' show AvatarImage;
 
-/// バックグラウンド / 終了状態でのプッシュ通知受信ハンドラ
-/// トップレベル関数でなければならない
+/// Push notification handler for background / terminated app states.
+/// Must be a top-level function.
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  // システムが自動でトレイ通知を表示する。追加処理は不要。
+  // The OS displays the notification tray automatically — no extra handling needed.
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  // バックグラウンドハンドラを登録
+  // Register the background message handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   runApp(
     MultiProvider(
@@ -81,8 +82,8 @@ class _StartupRouterState extends State<_StartupRouter> {
   Future<void> _run() async {
     final userPrefs = context.read<UserPrefs>();
 
-    // Firebase Auth のセッション復元が完了するまで待つ（固定遅延なし）
-    // → 既ログイン済みの場合はログイン画面をスキップできる
+    // Wait for Firebase Auth session restoration — no fixed delay.
+    // Already-signed-in users skip the login screen entirely.
     while (userPrefs.isLoading) {
       await Future.delayed(const Duration(milliseconds: 50));
       if (!mounted) return;
@@ -149,10 +150,10 @@ class _MainShellState extends State<MainShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<UserPrefs>().addListener(_checkFcmDenied);
     });
-    // フォアグラウンド中にプッシュ通知が届いたら未読数をインクリメント + SnackBar 表示
+    // Increment unread count and show a SnackBar when a push notification arrives in the foreground
     FirebaseMessaging.onMessage.listen((message) {
       if (!mounted) return;
-      // ストリームなしで未読バッジを更新
+      // Update the unread badge without a Firestore stream
       context.read<UserPrefs>().incrementUnreadCount();
       final title = message.notification?.title ?? '';
       final body = message.notification?.body ?? '';
@@ -162,7 +163,7 @@ class _MainShellState extends State<MainShell> {
         backgroundColor: AppColors.primary,
         duration: const Duration(seconds: 4),
         action: SnackBarAction(
-          label: '確認',
+          label: 'View',
           textColor: Colors.white,
           onPressed: () {
             Navigator.push(
@@ -271,7 +272,7 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
       actions: [
-        // 通知ベルアイコン（UserPrefs のキャッシュ済み未読数を使用 — Firestore ストリーム不要）
+        // Notification bell — uses the cached unread count from UserPrefs (no Firestore stream)
         Consumer<UserPrefs>(
           builder: (context, userPrefs, _) {
             if (!userPrefs.isLoggedIn) return const SizedBox.shrink();
@@ -335,12 +336,12 @@ class _MainShellState extends State<MainShell> {
     };
   }
 
-  void _onNavTap(int index) {
+  Future<void> _onNavTap(int index) async {
     if (index == 2) {
       _openPostCreate();
       return;
     }
-    // ホームタブを既にホームにいる状態で押したらトップへスクロール
+    // Tapping Home while already on Home scrolls back to the top
     if (index == 0 && _selectedIndex == 0) {
       if (_homeScrollCtrl.hasClients) {
         _homeScrollCtrl.animateTo(
@@ -351,7 +352,47 @@ class _MainShellState extends State<MainShell> {
       }
       return;
     }
+    // Map tab — ensure location permission before switching
+    if (index == 3) {
+      final state = context.read<AppState>();
+      if (!state.locationReady && !state.isDetectingLocation) {
+        await state.detectLocation();
+        if (!mounted) return;
+        if (state.locationPermissionDeniedForever) {
+          await _showLocationPermissionDialog();
+          if (!mounted) return;
+        }
+      }
+    }
     setState(() => _selectedIndex = index);
+  }
+
+  Future<void> _showLocationPermissionDialog() async {
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Location access required'),
+        content: const Text(
+            'The map works best with your location. '
+            'Location permission has been permanently denied — '
+            'open Settings to enable it.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Skip'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+    if (open == true) {
+      await Geolocator.openAppSettings();
+    }
   }
 
   void _openPostCreate() {

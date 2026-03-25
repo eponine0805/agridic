@@ -1,13 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// ユーザーが選択したダウンロードモードを管理する
-/// modes は 'text', 'manual', 'visual' の部分集合
+/// Manages the user's selected download modes.
+/// modes is a subset of 'text', 'manual', 'visual'
 class ConnectivityPrefs extends ChangeNotifier {
   static const _key = 'connectivity_modes';
   static const _keySetup = 'setup_done';
 
-  /// デフォルト: テキスト + テキスト+画像
+  /// Default: text + text+images
   static const Set<String> defaultModes = {'text', 'manual'};
 
   Set<String> _modes = defaultModes;
@@ -16,7 +16,7 @@ class ConnectivityPrefs extends ChangeNotifier {
   Set<String> get modes => _modes;
   bool get setupDone => _setupDone;
 
-  /// このモードが有効かどうか
+  /// Returns true if the given mode is enabled.
   bool isEnabled(String mode) => _modes.contains(mode);
 
   ConnectivityPrefs() {
@@ -36,7 +36,7 @@ class ConnectivityPrefs extends ChangeNotifier {
   }
 
   Future<void> saveModes(Set<String> modes) async {
-    // 'text' は常に有効（必須）
+    // 'text' is always enabled (required)
     final m = {'text', ...modes};
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_key, m.toList());

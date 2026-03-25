@@ -2,23 +2,23 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/post.dart';
 
-/// オフライン時に作成した投稿をローカルに保存し、
-/// オンライン復帰時にFirestoreへアップロードするキュー
+/// Persists posts created while offline and uploads them to Firestore
+/// when connectivity is restored.
 class OfflineQueueService {
   static const _key = 'offline_post_queue';
 
-  /// キューに保存できる投稿の最大件数（端末ストレージ保護）
+  /// Maximum number of posts that can be queued (protects device storage).
   static const maxQueueSize = 200;
 
-  /// キューに投稿を追加
-  /// [localTweetImagePath] : ツイート型の添付画像ローカルパス（オフライン時）
-  /// キューが満杯の場合は false を返す
+  /// Adds a post to the queue.
+  /// [localTweetImagePath]: local path to an attached image for tweet-type posts (offline only).
+  /// Returns false if the queue is full.
   static Future<bool> enqueue(Post post, {String? localTweetImagePath}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
     final List<dynamic> queue =
         raw != null ? jsonDecode(raw) as List<dynamic> : [];
-    if (queue.length >= maxQueueSize) return false; // キュー満杯
+    if (queue.length >= maxQueueSize) return false; // queue full
     final entry = <String, dynamic>{'post': post.toJson()};
     if (localTweetImagePath != null) {
       entry['localTweetImagePath'] = localTweetImagePath;
@@ -28,9 +28,9 @@ class OfflineQueueService {
     return true;
   }
 
-  /// キューの全エントリを取得
-  /// 各エントリは {'post': {...}, 'localTweetImagePath': '...'} の形式
-  /// （旧フォーマットの直接 postJson も後方互換で返す）
+  /// Returns all queued entries.
+  /// Each entry has the shape {'post': {...}, 'localTweetImagePath': '...'}.
+  /// Legacy entries stored as plain postJson are also returned for backward compatibility.
   static Future<List<Map<String, dynamic>>> getAll() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
@@ -39,13 +39,13 @@ class OfflineQueueService {
     return list.cast<Map<String, dynamic>>();
   }
 
-  /// キューが空かどうか
+  /// Returns true if the queue is empty.
   static Future<bool> isEmpty() async {
     final items = await getAll();
     return items.isEmpty;
   }
 
-  /// インデックスを指定してキューの1エントリを更新（画像URL反映用）
+  /// Updates a single entry at [index] (used to persist uploaded image URLs).
   static Future<void> updateAt(int index, Map<String, dynamic> entry) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
@@ -56,7 +56,7 @@ class OfflineQueueService {
     await prefs.setString(_key, jsonEncode(list));
   }
 
-  /// インデックスを指定してキューの1エントリを削除（成功後の個別削除用）
+  /// Removes a single entry at [index] after it has been successfully posted.
   static Future<void> removeAt(int index) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
@@ -67,13 +67,13 @@ class OfflineQueueService {
     await prefs.setString(_key, jsonEncode(list));
   }
 
-  /// キューを空にする
+  /// Clears the entire queue.
   static Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
   }
 
-  /// キューの件数
+  /// Returns the number of queued posts.
   static Future<int> count() async {
     final items = await getAll();
     return items.length;

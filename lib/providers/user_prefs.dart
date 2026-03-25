@@ -29,10 +29,10 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
   bool _firstDownloadDone = false;
   bool _loading = true;
 
-  // ─── 未読いいね数 ─────────────────────────────────────────────────
+  // ─── Unread like count ──────────────────────────────────────────────────
   int _unreadCount = 0;
 
-  // ─── FCM 権限拒否フラグ ──────────────────────────────────────────
+  // ─── FCM permission denied flag ─────────────────────────────────────────
   bool _fcmPermissionDenied = false;
 
   bool get isLoading => _loading;
@@ -44,7 +44,7 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
           : (_user?.email?.split('@').first ?? '');
   String get userEmail => _user?.email ?? '';
   String get userRole => _role;
-  /// 型安全なロール参照用（列挙型）
+  /// Type-safe role accessor.
   UserRole get role => switch (_role) {
         'expert' => UserRole.expert,
         'admin' => UserRole.admin,
@@ -116,7 +116,7 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
         _role = (data['role'] ?? 'farmer') as String;
         _bio = (data['bio'] ?? '') as String;
         _unreadCount = (data['newLikeCount'] as int?) ?? 0;
-        // 新端末ではローカルにアバターがないので Firestore から復元
+        // On a new device, restore the avatar from Firestore if not cached locally
         if (_avatarBase64.isEmpty) {
           final remote = (data['avatarBase64'] ?? '') as String;
           if (remote.isNotEmpty) {
@@ -130,7 +130,7 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
         await prefs.setString(_keyRole, _role);
         await prefs.setString(_keyBio, _bio);
         await prefs.setInt(_keyUnreadCount, _unreadCount);
-        // アクセス解析を記録
+        // Record app open for analytics
         final lastOpenDate = data['lastOpenDate'] as String?;
         FirebaseService.recordAppOpen(uid, lastOpenDate);
       } else {
@@ -144,9 +144,9 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  // ─── FCM セットアップ ──────────────────────────────────────────────
+  // ─── FCM setup ──────────────────────────────────────────────────────────
 
-  // ─── App lifecycle: refresh role on foreground resume ────────────────────
+  // ─── App lifecycle: refresh role on foreground resume ───────────────────
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -158,7 +158,7 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _setupFcm(String uid) async {
     try {
-      // 通知権限をリクエスト（Android 13+ / iOS）
+      // Request notification permission (Android 13+ / iOS)
       final settings = await FirebaseMessaging.instance.requestPermission(
         alert: true,
         badge: true,
@@ -170,13 +170,13 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
-      // FCM トークンを取得して Firestore に保存
+      // Fetch the FCM token and save it to Firestore
       final token = await FirebaseMessaging.instance.getToken();
       if (token != null) {
         await FirebaseService.saveFcmToken(uid, token);
       }
 
-      // トークン更新時に再保存（1秒デバウンス: 連続更新で Firestore 書き込みが連発しないよう抑制）
+      // Re-save the token when it rotates (1-second debounce to avoid rapid Firestore writes)
       _fcmTokenRefreshSubscription?.cancel();
       _fcmTokenRefreshSubscription =
           FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
@@ -187,16 +187,16 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
         });
       });
 
-      // 農業アラート全配信トピックを購読
+      // Subscribe to the broadcast topic for system-wide alerts
       await FirebaseMessaging.instance.subscribeToTopic('broadcasts');
     } catch (_) {
-      // FCM が使えない環境（エミュレータ等）はスキップ
+      // FCM is unavailable in emulators or restricted environments — skip silently
     }
   }
 
-  // ─── 未読数（起動時に _loadRole と同じ read で取得、以降はFCM受信でインクリメント）────
+  // ─── Unread count (loaded from Firestore on startup, then incremented by FCM) ──
 
-  /// FCMでプッシュ通知を受信した時に呼ぶ（main.dartのforegroundハンドラから）
+  /// Call this when an FCM push notification is received (from main.dart foreground handler).
   void incrementUnreadCount() {
     _unreadCount++;
     notifyListeners();
@@ -204,7 +204,7 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
     SharedPreferences.getInstance().then((p) => p.setInt(_keyUnreadCount, _unreadCount));
   }
 
-  /// 通知画面を開いた時に呼ぶ（Firestore の newLikeCount もリセット）
+  /// Call this when the notifications screen is opened — also resets Firestore newLikeCount.
   Future<void> resetLikeCount() async {
     _unreadCount = 0;
     notifyListeners();
@@ -215,7 +215,7 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  // ─── 認証 ─────────────────────────────────────────────────────────
+  // ─── Authentication ──────────────────────────────────────────────────────
 
   Future<String?> signIn(String email, String password) async {
     try {
@@ -286,20 +286,20 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
     _fcmTokenRefreshSubscription?.cancel();
     _fcmTokenRefreshSubscription = null;
     _fcmTokenRefreshDebounce?.cancel();
-    // FCM トークンを Firestore から削除してからサインアウト
+    // Remove FCM token from Firestore before signing out
     try {
       final uid = _user?.uid;
       if (uid != null) {
         final token = await FirebaseMessaging.instance.getToken();
         if (token != null) {
-          // tokens サブコレクションから削除
+          // Remove from the tokens sub-collection
           await _db
               .collection('users')
               .doc(uid)
               .collection('tokens')
               .doc(token)
               .delete();
-          // fcmToken フィールドもクリア
+          // Also clear the legacy fcmToken field
           await _db
               .collection('users')
               .doc(uid)
@@ -319,12 +319,12 @@ class UserPrefs extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// アバター画像を更新（ローカル保存 + Firestore バックアップ）
-  /// base64文字列が 2MB を超える場合は例外を投げる
+  /// Update the avatar image (saved locally and backed up to Firestore).
+  /// Throws if the base64 string exceeds 2 MB.
   Future<void> updateAvatar(String base64) async {
     const maxSize = 2 * 1024 * 1024; // 2 MB
     if (base64.length > maxSize) {
-      throw Exception('アバター画像が大きすぎます（最大 2MB）');
+      throw Exception('Avatar image too large (max 2 MB)');
     }
     _avatarBase64 = base64;
     notifyListeners();

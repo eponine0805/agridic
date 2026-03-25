@@ -22,7 +22,7 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
   String? _downloadError;
   bool _done = false;
 
-  /// キャッシュ情報（再ダウンロード時に使う）
+  /// Cached dictionary info (used when re-downloading).
   DateTime? _cachedSavedAt;
   int _cachedCount = 0;
   Set<String> _cachedIds = {};
@@ -30,7 +30,7 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
   /// 0 = text only, 1 = text + thumbnails, 2 = text + full images
   int _selectedMode = 1;
 
-  /// 再ダウンロード時: true = 差分のみ, false = 全件
+  /// When re-downloading: true = incremental (new entries only), false = full download.
   bool get _isIncremental =>
       !widget.isFirstRun && _cachedSavedAt != null;
 
@@ -42,7 +42,7 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
 
   Future<void> _fetchInfo() async {
     try {
-      // 既存キャッシュを確認
+      // Check existing cache
       if (!widget.isFirstRun) {
         final cached = await DictLocalService.load();
         _cachedSavedAt = cached.savedAt;
@@ -51,7 +51,7 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
         _cachedIds = cached.posts.map((p) => p.postId).toSet();
       }
 
-      // 差分のみのサイズを表示（timestamp でなくIDで比較）
+      // Show size for new entries only (compared by ID, not timestamp)
       final info = await FirebaseService.getDictionaryInfo(
         excludeIds: _isIncremental ? _cachedIds : null,
       );
@@ -92,7 +92,7 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
       _downloadError = null;
     });
     try {
-      // 全件取得してID照合で差分を merge（timestamp でなくIDで比較）
+      // Fetch all entries and merge by ID comparison (not timestamp)
       final posts = await FirebaseService.fetchDictionaryPosts();
 
       for (var i = 0; i < posts.length; i++) {
@@ -102,10 +102,10 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
 
       int totalCount;
       if (_isIncremental) {
-        // 既存キャッシュにマージ
+        // Merge into existing cache
         totalCount = await DictLocalService.merge(posts, _selectedMode);
       } else {
-        // 初回または全件上書き
+        // First run or full overwrite
         await DictLocalService.save(posts, _selectedMode);
         totalCount = posts.length;
       }
@@ -185,7 +185,7 @@ class _DictDownloadScreenState extends State<DictDownloadScreen> {
           )
         else ...[
           if (_isIncremental) ...[
-            // 差分ダウンロード情報
+            // Incremental download info
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(

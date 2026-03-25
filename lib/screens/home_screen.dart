@@ -33,7 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
 
-  // ローカルキャッシュ（辞書ダウンロード済みデータ）
+  // Local cache of downloaded dictionary data
   List<Post> _dictCache = [];
 
   double _bottomOverscroll = 0;
@@ -66,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _scrollCtrl.removeListener(_onScroll);
-    _ownScrollCtrl.dispose(); // 外部コントローラは dispose しない
+    _ownScrollCtrl.dispose(); // do not dispose the externally-owned controller
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -397,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// ローカルキャッシュに対してファジー検索（Firestoreへの読み取り0回）
+  /// Fuzzy search over the local cache — zero Firestore reads.
   Widget _buildDictResults() {
     if (_dictCache.isEmpty) {
       return Center(
@@ -512,6 +512,36 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('Loading…',
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           ],
+        ),
+      );
+    }
+
+    if (state.lastLoadError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.cloud_off_outlined,
+                  size: 48, color: AppColors.textSecondary),
+              const SizedBox(height: 12),
+              Text(state.lastLoadError!,
+                  style: const TextStyle(
+                      color: AppColors.textSecondary, fontSize: 14),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: state.refresh,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Retry'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -792,7 +822,7 @@ class _FilterSectionHeader extends StatelessWidget {
   final bool isActive;
   final VoidCallback onTap;
   final VoidCallback? onClear;
-  /// 閉じている時に選択値をバッジ表示する（Crops 用）
+  /// When collapsed, shows the selected value as a badge (used for Crops).
   final String? selectedValue;
 
   const _FilterSectionHeader({
@@ -839,7 +869,7 @@ class _FilterSectionHeader extends StatelessWidget {
                 color: isActive ? AppColors.primary : AppColors.textSecondary,
               ),
             ),
-            // 閉じている & 選択中 → 選択値バッジを表示
+            // Collapsed and a value is selected — show the value as a badge
             if (!isExpanded && isActive && selectedValue != null) ...[
               const SizedBox(width: 6),
               Container(
