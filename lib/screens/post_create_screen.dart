@@ -13,6 +13,7 @@ import '../services/dict_local_service.dart';
 import '../services/firebase_service.dart';
 import '../services/offline_queue_service.dart';
 import '../utils/app_colors.dart';
+import '../widgets/rich_text_content.dart';
 
 class PostCreateScreen extends StatefulWidget {
   const PostCreateScreen({super.key});
@@ -320,15 +321,106 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   // ─── Preview ───────────────────────────────────────────────────────────
 
+  /// ブロックを直接レンダリングするプレビューコンテンツを生成する（実際のレポート表示と同一）
+  List<Widget> _buildBlocksPreviewWidgets(List<Map<String, dynamic>> blocks) {
+    final widgets = <Widget>[];
+    final steps = <String>[];
+
+    for (final block in blocks) {
+      final type = block['type'] as String;
+      final val = (block['ctrl'] as TextEditingController).text.trim();
+      final file = block['file'] as XFile?;
+
+      switch (type) {
+        case 'heading':
+          if (val.isEmpty) continue;
+          widgets.add(const SizedBox(height: 4));
+          widgets.add(Container(
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.primaryLight, width: 2)),
+            ),
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(val,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.primaryDark)),
+          ));
+        case 'text':
+          if (val.isEmpty) continue;
+          widgets.add(Text(val,
+              style: const TextStyle(fontSize: 14, color: AppColors.textPrimary)));
+          widgets.add(const SizedBox(height: 4));
+        case 'bullets':
+          for (var line in val.split('\n')) {
+            line = line.trim();
+            if (line.isEmpty) continue;
+            final text = line.startsWith('- ') ? line.substring(2) : line;
+            widgets.add(Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 6, height: 6,
+                  margin: const EdgeInsets.only(top: 7, right: 8),
+                  decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                ),
+                Expanded(child: Text(text,
+                    style: const TextStyle(fontSize: 14, color: AppColors.textPrimary))),
+              ],
+            ));
+          }
+          widgets.add(const SizedBox(height: 4));
+        case 'action_plan':
+          for (var line in val.split('\n')) {
+            line = line.trim();
+            if (line.isNotEmpty) steps.add(line);
+          }
+        case 'image':
+          if (file != null) {
+            widgets.add(Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.file(
+                  File(file.path),
+                  height: 120,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ));
+          } else {
+            widgets.add(Container(
+              height: 60,
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.modeActive,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Center(
+                child: Icon(Icons.image_outlined, color: AppColors.primary, size: 24),
+              ),
+            ));
+          }
+      }
+    }
+
+    if (steps.isNotEmpty) {
+      widgets.add(const SizedBox(height: 12));
+      widgets.add(StepsCard(steps: steps));
+    }
+
+    return widgets;
+  }
+
   void _showPreview() {
     final title = _rptTitleCtrl.text.trim();
     if (title.isEmpty) {
       _showError('Please add a title before previewing');
       return;
     }
-    final (textFull, _, steps) = _blocksToText(_blocks['text']!);
-    final (textManual, manualImages, _) = _blocksToText(_blocks['manual']!);
-    final (textVisual, visualImages, _) = _blocksToText(_blocks['visual']!);
+
+    // 現在のアクティブモードのブロックをプレビュー
+    final previewBlocks = _blocks[_activeMode]!;
+    final previewWidgets = _buildBlocksPreviewWidgets(previewBlocks);
 
     showModalBottomSheet(
       context: context,
@@ -376,7 +468,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Header card
+                      // Header card（実際の投稿カードと同じスタイル）
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -426,40 +518,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                           ],
                         ),
                       ),
-                      // Text mode content
-                      if (textFull.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        const Text('Text mode',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textSecondary)),
-                        const SizedBox(height: 8),
-                        _PreviewText(text: textFull, steps: steps),
-                      ],
-                      // Manual mode content
-                      if (textManual.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        const Text('Text + Images mode',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textSecondary)),
-                        const SizedBox(height: 8),
-                        _PreviewText(text: textManual, steps: const []),
-                      ],
-                      // Visual mode
-                      if (textVisual.isNotEmpty || visualImages.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        const Text('Visual mode',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textSecondary)),
-                        const SizedBox(height: 8),
-                        _PreviewText(text: textVisual, steps: const []),
-                      ],
-                      if (textFull.isEmpty && textManual.isEmpty && textVisual.isEmpty)
+                      const SizedBox(height: 16),
+                      // ブロックを直接レンダリング（実際の投稿表示と同一）
+                      if (previewWidgets.isNotEmpty)
+                        ...previewWidgets
+                      else
                         const Padding(
                           padding: EdgeInsets.all(24),
                           child: Center(
@@ -685,6 +748,26 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                       const Text('New post',
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     ]),
+                    Row(children: [
+                    if (_postType == 'report')
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert, color: Colors.white, size: 22),
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: 'excel',
+                            child: Row(
+                              children: [
+                                Icon(Icons.table_view_outlined, size: 16, color: AppColors.primary),
+                                SizedBox(width: 8),
+                                Text('Import Excel (.xlsx)'),
+                              ],
+                            ),
+                          ),
+                        ],
+                        onSelected: (v) {
+                          if (v == 'excel') _importFromExcel();
+                        },
+                      ),
                     SegmentedButton<String>(
                       selected: {_postType},
                       onSelectionChanged: (s) => setState(() => _postType = s.first),
@@ -700,6 +783,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                         ButtonSegment(value: 'report', label: Text('Report')),
                       ],
                     ),
+                    ]),
                   ],
                 ),
               ),
@@ -852,17 +936,6 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           _buildModeTab('visual', 'Image-based', Icons.image_outlined),
         ]),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: _importFromExcel,
-          icon: const Icon(Icons.table_view_outlined, size: 16),
-          label: const Text('Import Excel (.xlsx)', style: TextStyle(fontSize: 12)),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.primary,
-            side: const BorderSide(color: AppColors.primary),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          ),
-        ),
-        const SizedBox(height: 8),
         _buildBlockEditor(),
       ],
     );
@@ -1248,110 +1321,6 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     'action_plan' => 'One action step per line…',
     _ => '',
   };
-}
-
-// ─── Preview text widget ───────────────────────────────────────────────────
-
-class _PreviewText extends StatelessWidget {
-  final String text;
-  final List<String> steps;
-  const _PreviewText({required this.text, required this.steps});
-
-  @override
-  Widget build(BuildContext context) {
-    final lines = text.split('\n').where((l) => l.isNotEmpty).toList();
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ...lines.map((line) {
-            if (line.startsWith('## ')) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 6, top: 4),
-                child: Text(
-                  line.substring(3),
-                  style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary),
-                ),
-              );
-            }
-            if (line.startsWith('- ')) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('• ', style: TextStyle(fontSize: 13)),
-                    Expanded(child: Text(line.substring(2),
-                        style: const TextStyle(fontSize: 13))),
-                  ],
-                ),
-              );
-            }
-            if (RegExp(r'^!\[\d+\]').hasMatch(line)) {
-              return Container(
-                height: 60,
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.modeActive,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: const Center(
-                  child: Icon(Icons.image_outlined,
-                      color: AppColors.primary, size: 24),
-                ),
-              );
-            }
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(line, style: const TextStyle(fontSize: 13)),
-            );
-          }),
-          if (steps.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            const Text('Action Plan',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primaryDark)),
-            const SizedBox(height: 4),
-            ...steps.asMap().entries.map((e) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 20,
-                    height: 20,
-                    decoration: const BoxDecoration(
-                        color: AppColors.primary, shape: BoxShape.circle),
-                    alignment: Alignment.center,
-                    child: Text('${e.key + 1}',
-                        style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: Text(e.value,
-                          style: const TextStyle(fontSize: 13))),
-                ],
-              ),
-            )),
-          ],
-        ],
-      ),
-    );
-  }
 }
 
 // ─── Location Picker ───────────────────────────────────────────────────────

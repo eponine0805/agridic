@@ -426,9 +426,12 @@ class _DetailScreenState extends State<DetailScreen> {
     final fullText = _getTextForMode(_activeTab);
     final imgs = widget.post.content.images;
 
+    // 辞書に登録されている投稿は高解像度、それ以外は低解像度で表示
+    final useHigh = widget.post.inDictionary;
+
     if (_activeTab == 'text') {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        RichTextContent(text: fullText, images: imgs, useHighRes: false),
+        RichTextContent(text: fullText, images: imgs, useHighRes: useHigh),
         if (widget.post.content.steps.isNotEmpty) ...[
           const SizedBox(height: 12),
           StepsCard(steps: widget.post.content.steps),
@@ -436,7 +439,7 @@ class _DetailScreenState extends State<DetailScreen> {
       ]);
     } else if (_activeTab == 'manual') {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        RichTextContent(text: fullText, images: imgs, useHighRes: true),
+        RichTextContent(text: fullText, images: imgs, useHighRes: useHigh),
         if (widget.post.content.steps.isNotEmpty) ...[
           const SizedBox(height: 12),
           StepsCard(steps: widget.post.content.steps),
