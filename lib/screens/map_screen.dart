@@ -248,7 +248,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 }
 
-// Google Maps スタイルの現在地ドット
+// Google Maps-style current location dot
 class _CurrentLocationDot extends StatelessWidget {
   const _CurrentLocationDot();
 

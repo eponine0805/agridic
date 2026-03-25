@@ -426,7 +426,7 @@ class _Avatar extends StatelessWidget {
   }
 }
 
-/// base64 アバター画像ウィジェット（PostCard・プロフィール画面で共用）
+/// Base64 avatar image widget shared by PostCard and the profile screen.
 class AvatarImage extends StatelessWidget {
   final String base64;
   final double radius;
@@ -457,7 +457,7 @@ class _Thumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (url.startsWith('data:image')) {
-      // base64 data URL（サムネイル）
+      // base64 data URL (thumbnail)
       try {
         final base64Data = url.split(',').last;
         return ClipRRect(
@@ -476,7 +476,7 @@ class _Thumbnail extends StatelessWidget {
       }
     }
     if (!url.startsWith('http')) {
-      // emoji等のプレースホルダー — 表示しない
+      // emoji or other placeholder — render nothing
       return const SizedBox.shrink();
     }
     return ClipRRect(
@@ -606,7 +606,7 @@ class _DictConfigSheetState extends State<_DictConfigSheet> {
       'isOfficial': _inDictionary ? true : widget.post.isOfficial,
     });
     if (!mounted) return;
-    // ローカル状態を最新化してカードを再描画
+    // Sync local state so the card re-renders with the latest data
     await context.read<AppState>().reloadPost(widget.post.postId);
     if (mounted) Navigator.of(context).pop();
   }

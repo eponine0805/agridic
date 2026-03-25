@@ -74,11 +74,11 @@ class Post {
   final bool inDictionary;
   /// 'tweet' | 'report' | '' (empty = legacy, inferred from dictCrop)
   final String postType;
-  /// 投稿者のアバター画像（base64 data URL）— 投稿作成時に埋め込み
+  /// Author avatar image (base64 data URL) — embedded at post creation time.
   final String avatarBase64;
-  /// 最終編集日時（nullなら未編集）
+  /// Timestamp of the last edit (null if never edited).
   final DateTime? editedAt;
-  /// 最終編集者のUID
+  /// UID of the last editor.
   final String editedBy;
 
   Post({
@@ -157,13 +157,13 @@ class Post {
         editedBy: editedBy ?? this.editedBy,
       );
 
-  /// tweet か report かを判定（postType フィールドが空の旧データに対応）
+  /// Returns true if this is a tweet (handles legacy posts where postType is empty).
   bool get isTweet => postType == 'tweet' ||
       (postType.isEmpty && dictCrop.isEmpty && content.steps.isEmpty &&
           content.textFull.isEmpty && content.textFullManual.isEmpty);
   bool get isReport => !isTweet;
 
-  /// オフラインキューのJSONから復元する
+  /// Deserializes a Post from an offline queue JSON map.
   factory Post.fromMap(Map<String, dynamic> m) {
     final locMap = m['location'] as Map<String, dynamic>?;
     final ts = m['timestamp'];
@@ -271,7 +271,7 @@ class Post {
         if (editedBy.isNotEmpty) 'editedBy': editedBy,
       };
 
-  /// JSON シリアライズ用（オフラインキュー保存）
+  /// Serializes the post to JSON for offline queue storage.
   Map<String, dynamic> toJson() => {
         'postId': postId,
         'userId': userId,

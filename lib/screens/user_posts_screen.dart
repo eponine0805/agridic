@@ -293,7 +293,7 @@ class _UserPostsScreenState extends State<UserPostsScreen>
 
   Widget _buildSliverHeader(BuildContext context, bool innerBoxIsScrolled) {
     return SliverAppBar(
-      expandedHeight: 200,
+      expandedHeight: 260,
       pinned: true,
       forceElevated: innerBoxIsScrolled,
       backgroundColor: AppColors.primary,
@@ -481,6 +481,7 @@ class _ProfileHeader extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ],
+          const SizedBox(height: 52),
         ],
       ),
     );

@@ -82,7 +82,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             color: AppColors.danger, size: 20),
                       ),
                       title: Text(
-                        '$likeCount 件のいいねがありました',
+                        '$likeCount new like${likeCount == 1 ? '' : 's'}',
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
@@ -98,7 +98,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 }
 
-// ─── 管理者ブロードキャスト送信ダイアログ ──────────────────────────────
+// ─── Admin broadcast dialog ───────────────────────────────────────────────
 
 class AdminBroadcastDialog extends StatefulWidget {
   const AdminBroadcastDialog({super.key});

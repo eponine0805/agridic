@@ -14,7 +14,7 @@ class AdminUsersScreen extends StatefulWidget {
 class _AdminUsersScreenState extends State<AdminUsersScreen> {
   List<Map<String, dynamic>> _users = [];
   bool _loading = false;
-  bool _searched = false; // 一度も検索していない状態を区別
+  bool _searched = false; // distinguishes "never searched" from "no results found"
   String? _error;
   final _searchCtrl = TextEditingController();
 
@@ -28,7 +28,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     final query = _searchCtrl.text.trim();
     if (query.isEmpty) {
       setState(() {
-        _error = 'キーワードを入力してください';
+        _error = 'Please enter a search keyword';
       });
       return;
     }
@@ -59,7 +59,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     final newRole = showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('ロールを変更'),
+        title: const Text('Change role'),
         children: [
           _roleOption(ctx, 'farmer', currentRole),
           _roleOption(ctx, 'expert', currentRole),
@@ -71,7 +71,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     if (role == null || role == currentRole) return;
 
     await FirebaseService.setUserRole(uid, role);
-    _search(); // 変更後に再検索
+    _search(); // refresh results after role change
   }
 
   Widget _roleOption(BuildContext ctx, String role, String current) {
@@ -120,7 +120,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       ),
       body: Column(
         children: [
-          // 検索バー
+          // Search bar
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
             child: Row(
@@ -131,7 +131,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                     textInputAction: TextInputAction.search,
                     onSubmitted: (_) => _search(),
                     decoration: InputDecoration(
-                      hintText: '名前またはメールで検索…',
+                      hintText: 'Search by name or email…',
                       prefixIcon: const Icon(Icons.search,
                           color: AppColors.primary, size: 20),
                       suffixIcon: _searchCtrl.text.isNotEmpty
@@ -176,7 +176,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           child: CircularProgressIndicator(
                               color: Colors.white, strokeWidth: 2),
                         )
-                      : const Text('検索'),
+                      : const Text('Search'),
                 ),
               ],
             ),
@@ -190,7 +190,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                       color: AppColors.danger, fontSize: 12)),
             ),
 
-          // 検索結果
+          // Search results
           Expanded(
             child: _loading
                 ? const Center(
@@ -199,7 +199,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                 : !_searched
                     ? const Center(
                         child: Text(
-                          '名前またはメールアドレスで検索してください',
+                          'Search by name or email address',
                           style: TextStyle(color: AppColors.textSecondary),
                           textAlign: TextAlign.center,
                         ),
@@ -207,7 +207,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                     : _users.isEmpty
                         ? Center(
                             child: Text(
-                              '"${_searchCtrl.text.trim()}" に一致するユーザーが見つかりません',
+                              'No users found matching "${_searchCtrl.text.trim()}"',
                               style: const TextStyle(
                                   color: AppColors.textSecondary),
                               textAlign: TextAlign.center,

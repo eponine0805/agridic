@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:excel/excel.dart' hide Border;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -12,7 +14,9 @@ import '../providers/user_prefs.dart';
 import '../services/dict_local_service.dart';
 import '../services/firebase_service.dart';
 import '../services/offline_queue_service.dart';
+import '../services/post_draft_service.dart';
 import '../utils/app_colors.dart';
+import '../widgets/rich_text_content.dart';
 
 class PostCreateScreen extends StatefulWidget {
   const PostCreateScreen({super.key});
@@ -57,6 +61,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     super.initState();
     _tagFocusNode = FocusNode();
     _loadAvailableTags();
+    _checkAndRestoreDraft();
   }
 
   Future<void> _loadAvailableTags() async {
@@ -79,13 +84,71 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     _rptLocationCtrl.dispose();
     _tagCtrl.dispose();
     _tagFocusNode.dispose();
-    // 全ブロックの TextEditingController を dispose
+    // Dispose all block TextEditingControllers
     for (final blocks in _blocks.values) {
       for (final block in blocks) {
         (block['ctrl'] as TextEditingController).dispose();
       }
     }
     super.dispose();
+  }
+
+  // ─── Draft ─────────────────────────────────────────────────────────────
+
+  Future<void> _checkAndRestoreDraft() async {
+    if (!await PostDraftService.hasDraft()) return;
+    if (!mounted) return;
+    final restore = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Restore draft?'),
+        content: const Text(
+            'You have an unsaved draft. Would you like to continue where you left off?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Discard'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (restore == true) {
+      final draft = await PostDraftService.loadDraft();
+      setState(() {
+        if (draft['tweetText']!.isNotEmpty) {
+          _tweetTextCtrl.text = draft['tweetText']!;
+        }
+        if (draft['reportTitle']!.isNotEmpty) {
+          _postType = 'report';
+          _rptTitleCtrl.text = draft['reportTitle']!;
+          _rptCropCtrl.text = draft['reportCrop']!;
+          _rptLocationCtrl.text = draft['reportLoc']!;
+        }
+      });
+    } else {
+      await PostDraftService.clearDraft();
+    }
+  }
+
+  Future<void> _saveDraft() async {
+    await PostDraftService.saveDraft(
+      tweetText: _tweetTextCtrl.text,
+      reportTitle: _rptTitleCtrl.text,
+      reportCrop: _rptCropCtrl.text,
+      reportLoc: _rptLocationCtrl.text,
+    );
+  }
+
+  Future<void> _handleBack() async {
+    await _saveDraft();
+    if (mounted) Navigator.pop(context);
   }
 
   // ─── Tags ──────────────────────────────────────────────────────────────
@@ -147,8 +210,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   static const _maxImageBytes = 10 * 1024 * 1024; // 10 MB
 
-  /// ファイルが画像かどうかを magic bytes で検証する
-  /// JPEG: FF D8 FF  /  PNG: 89 50 4E 47  /  GIF: 47 49 46 38  /  WebP: RIFF...WEBP
+  /// Validates a file by checking its magic bytes (JPEG / PNG / GIF / WebP).
   static Future<bool> _isValidImageFile(XFile file) async {
     try {
       final bytes = await file.openRead(0, 12).expand((b) => b).toList();
@@ -176,11 +238,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   Future<bool> _validateImage(XFile file) async {
     final size = await file.length();
     if (size > _maxImageBytes) {
-      if (mounted) _showError('画像が大きすぎます（最大 10MB）');
+      if (mounted) _showError('Image too large (max 10 MB)');
       return false;
     }
     if (!await _isValidImageFile(file)) {
-      if (mounted) _showError('対応していないファイル形式です（JPEG / PNG / GIF / WebP のみ）');
+      if (mounted) _showError('Unsupported file format — use JPEG, PNG, GIF, or WebP');
       return false;
     }
     return true;
@@ -215,19 +277,19 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         withData: true,
       );
     } catch (_) {
-      if (mounted) _showError('ファイル選択に失敗しました');
+      if (mounted) _showError('Could not open file picker');
       return;
     }
     if (result == null || result.files.isEmpty) return;
     final bytes = result.files.first.bytes;
     if (bytes == null) {
-      if (mounted) _showError('ファイルを読み込めませんでした');
+      if (mounted) _showError('Could not read the selected file');
       return;
     }
     try {
       final excel = Excel.decodeBytes(bytes);
       if (excel.tables.isEmpty) {
-        if (mounted) _showError('シートが見つかりませんでした');
+        if (mounted) _showError('No sheets found in the Excel file');
         return;
       }
       final sheet = excel.tables.values.first;
@@ -243,16 +305,16 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       }
       if (!mounted) return;
       if (added == 0) {
-        _showError('取り込めるデータがありませんでした');
+        _showError('No importable data found in the file');
       } else {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('$added 件取り込みました'),
+          content: Text('Imported $added row${added == 1 ? '' : 's'}'),
           backgroundColor: AppColors.primary,
           duration: const Duration(seconds: 2),
         ));
       }
     } catch (e) {
-      if (mounted) _showError('Excelの読み込みに失敗しました: $e');
+      if (mounted) _showError('Failed to read Excel file: $e');
     }
   }
 
@@ -303,6 +365,23 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   Future<void> _openLocationPicker() async {
     final state = context.read<AppState>();
+
+    // If location was permanently denied, guide the user to system settings
+    if (state.locationPermissionDeniedForever) {
+      await _showLocationSettingsDialog();
+      return;
+    }
+
+    // If location is not yet obtained, attempt detection first
+    if (!state.locationReady && !state.isDetectingLocation) {
+      await state.detectLocation();
+      if (!mounted) return;
+      if (state.locationPermissionDeniedForever) {
+        await _showLocationSettingsDialog();
+        return;
+      }
+    }
+
     final base = _selectedLocation ?? (state.locationReady ? state.currentLocation : null);
     final initial = base != null ? LatLng(base.$1, base.$2) : const LatLng(-0.95, 36.87);
     final gps = state.locationReady
@@ -318,7 +397,122 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     if (result != null) setState(() => _selectedLocation = result);
   }
 
+  Future<void> _showLocationSettingsDialog() async {
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Location access required'),
+        content: const Text(
+            'Location permission has been permanently denied. '
+            'Open Settings to allow location access for this app.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+    if (open == true) unawaited(Geolocator.openAppSettings());
+  }
+
   // ─── Preview ───────────────────────────────────────────────────────────
+
+  /// Builds preview widgets by rendering blocks directly (identical to the actual report view).
+  List<Widget> _buildBlocksPreviewWidgets(List<Map<String, dynamic>> blocks) {
+    final widgets = <Widget>[];
+    final steps = <String>[];
+
+    for (final block in blocks) {
+      final type = block['type'] as String;
+      final val = (block['ctrl'] as TextEditingController).text.trim();
+      final file = block['file'] as XFile?;
+
+      switch (type) {
+        case 'heading':
+          if (val.isEmpty) continue;
+          widgets.add(const SizedBox(height: 4));
+          widgets.add(Container(
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.primaryLight, width: 2)),
+            ),
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(val,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.primaryDark)),
+          ));
+        case 'text':
+          if (val.isEmpty) continue;
+          widgets.add(Text(val,
+              style: const TextStyle(fontSize: 14, color: AppColors.textPrimary)));
+          widgets.add(const SizedBox(height: 4));
+        case 'bullets':
+          for (var line in val.split('\n')) {
+            line = line.trim();
+            if (line.isEmpty) continue;
+            final text = line.startsWith('- ') ? line.substring(2) : line;
+            widgets.add(Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 6, height: 6,
+                  margin: const EdgeInsets.only(top: 7, right: 8),
+                  decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                ),
+                Expanded(child: Text(text,
+                    style: const TextStyle(fontSize: 14, color: AppColors.textPrimary))),
+              ],
+            ));
+          }
+          widgets.add(const SizedBox(height: 4));
+        case 'action_plan':
+          for (var line in val.split('\n')) {
+            line = line.trim();
+            if (line.isNotEmpty) steps.add(line);
+          }
+        case 'image':
+          if (file != null) {
+            widgets.add(Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.file(
+                  File(file.path),
+                  height: 120,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ));
+          } else {
+            widgets.add(Container(
+              height: 60,
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.modeActive,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Center(
+                child: Icon(Icons.image_outlined, color: AppColors.primary, size: 24),
+              ),
+            ));
+          }
+      }
+    }
+
+    if (steps.isNotEmpty) {
+      widgets.add(const SizedBox(height: 12));
+      widgets.add(StepsCard(steps: steps));
+    }
+
+    return widgets;
+  }
 
   void _showPreview() {
     final title = _rptTitleCtrl.text.trim();
@@ -326,9 +520,10 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       _showError('Please add a title before previewing');
       return;
     }
-    final (textFull, _, steps) = _blocksToText(_blocks['text']!);
-    final (textManual, manualImages, _) = _blocksToText(_blocks['manual']!);
-    final (textVisual, visualImages, _) = _blocksToText(_blocks['visual']!);
+
+    // Preview the currently active mode's blocks
+    final previewBlocks = _blocks[_activeMode]!;
+    final previewWidgets = _buildBlocksPreviewWidgets(previewBlocks);
 
     showModalBottomSheet(
       context: context,
@@ -376,7 +571,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Header card
+                      // Header card (same style as actual post card)
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -426,40 +621,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                           ],
                         ),
                       ),
-                      // Text mode content
-                      if (textFull.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        const Text('Text mode',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textSecondary)),
-                        const SizedBox(height: 8),
-                        _PreviewText(text: textFull, steps: steps),
-                      ],
-                      // Manual mode content
-                      if (textManual.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        const Text('Text + Images mode',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textSecondary)),
-                        const SizedBox(height: 8),
-                        _PreviewText(text: textManual, steps: const []),
-                      ],
-                      // Visual mode
-                      if (textVisual.isNotEmpty || visualImages.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        const Text('Visual mode',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textSecondary)),
-                        const SizedBox(height: 8),
-                        _PreviewText(text: textVisual, steps: const []),
-                      ],
-                      if (textFull.isEmpty && textManual.isEmpty && textVisual.isEmpty)
+                      const SizedBox(height: 16),
+                      // Render blocks directly (identical to the actual post view)
+                      if (previewWidgets.isNotEmpty)
+                        ...previewWidgets
+                      else
                         const Padding(
                           padding: EdgeInsets.all(24),
                           child: Center(
@@ -487,7 +653,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       await _submitInternal();
     } catch (e) {
       setState(() => _submitting = false);
-      if (mounted) _showError('エラーが発生しました: $e');
+      if (mounted) _showError('Something went wrong: $e');
     }
   }
 
@@ -501,7 +667,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       setState(() => _submitting = true);
 
       String imageLow = '', imageHigh = '';
-      // オンライン時のみ即時アップロード。オフライン時はローカルパスをキューに渡す。
+      // Upload immediately when online; pass local path to the queue when offline
       if (_tweetImageFile != null && state.isOnline) {
         try {
           final urls = await FirebaseService.uploadImage(postId, _tweetImageFile!);
@@ -533,7 +699,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           postType: 'tweet',
           avatarBase64: userPrefs.avatarBase64,
         ),
-        // オフライン時: ローカルパスを渡す → オンライン復帰時に自動アップロード
+        // Offline: pass local path — automatically uploaded when connectivity is restored
         localTweetImagePath:
             (!state.isOnline && _tweetImageFile != null) ? _tweetImageFile!.path : null,
       );
@@ -553,9 +719,9 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
       if (crop.isNotEmpty) shortParts.add('[$crop]');
       if (loc.isNotEmpty) shortParts.add('— $loc');
 
-      // 全モードの画像を処理
-      // オンライン: Firebase Storage にアップロードして URL をセット
-      // オフライン: ローカルパスをそのままセット → キュー保存後、復帰時に自動アップロード
+      // Process images for all modes:
+      // Online — upload to Firebase Storage and store the URL.
+      // Offline — keep the local path; it will be uploaded when connectivity is restored.
       for (final mode in ['text', 'manual', 'visual']) {
         for (final block in _blocks[mode]!) {
           if (block['type'] == 'image' && block['file'] != null) {
@@ -572,7 +738,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                 return;
               }
             } else {
-              // オフライン: ローカルパスを ctrl に入れておく
+              // Offline: store local path in the controller for later upload
               (block['ctrl'] as TextEditingController).text =
                   (block['file'] as XFile).path;
             }
@@ -580,7 +746,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
         }
       }
 
-      // 各モードのブロックをテキストに変換し、それぞれのフィールドに保存
+      // Convert blocks from each mode to text and store in the appropriate fields
       String textFull = '', textFullManual = '', textFullVisual = '';
       List<String> imgs = [], steps = [];
 
@@ -634,6 +800,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
     setState(() => _submitting = false);
     if (!mounted) return;
+    await PostDraftService.clearDraft();
     Navigator.pop(context);
     final isOnline = state.isOnline;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -664,7 +831,13 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        await _handleBack();
+      },
+      child: Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
         children: [
@@ -680,11 +853,31 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                     Row(children: [
                       IconButton(
                         icon: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: _handleBack,
                       ),
                       const Text('New post',
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     ]),
+                    Row(children: [
+                    if (_postType == 'report')
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert, color: Colors.white, size: 22),
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: 'excel',
+                            child: Row(
+                              children: [
+                                Icon(Icons.table_view_outlined, size: 16, color: AppColors.primary),
+                                SizedBox(width: 8),
+                                Text('Import Excel (.xlsx)'),
+                              ],
+                            ),
+                          ),
+                        ],
+                        onSelected: (v) {
+                          if (v == 'excel') _importFromExcel();
+                        },
+                      ),
                     SegmentedButton<String>(
                       selected: {_postType},
                       onSelectionChanged: (s) => setState(() => _postType = s.first),
@@ -700,6 +893,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                         ButtonSegment(value: 'report', label: Text('Report')),
                       ],
                     ),
+                    ]),
                   ],
                 ),
               ),
@@ -749,6 +943,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -852,17 +1047,6 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           _buildModeTab('visual', 'Image-based', Icons.image_outlined),
         ]),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: _importFromExcel,
-          icon: const Icon(Icons.table_view_outlined, size: 16),
-          label: const Text('Import Excel (.xlsx)', style: TextStyle(fontSize: 12)),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.primary,
-            side: const BorderSide(color: AppColors.primary),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          ),
-        ),
-        const SizedBox(height: 8),
         _buildBlockEditor(),
       ],
     );
@@ -1211,7 +1395,7 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
           _insertBtn(Icons.text_fields, 'Text', () => _addBlock('text', afterId: afterId)),
           _insertBtn(Icons.format_list_bulleted, 'Bullets', () => _addBlock('bullets', afterId: afterId)),
           _insertBtn(Icons.checklist_rtl, 'Action Plan', () => _addBlock('action_plan', afterId: afterId)),
-          // テキストモードでは画像ブロック不可
+          // Image blocks are not available in text-only mode
           if (_activeMode != 'text')
             _insertBtn(Icons.image_outlined, 'Image', () => _addBlock('image', afterId: afterId)),
         ],
@@ -1250,115 +1434,11 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
   };
 }
 
-// ─── Preview text widget ───────────────────────────────────────────────────
-
-class _PreviewText extends StatelessWidget {
-  final String text;
-  final List<String> steps;
-  const _PreviewText({required this.text, required this.steps});
-
-  @override
-  Widget build(BuildContext context) {
-    final lines = text.split('\n').where((l) => l.isNotEmpty).toList();
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ...lines.map((line) {
-            if (line.startsWith('## ')) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 6, top: 4),
-                child: Text(
-                  line.substring(3),
-                  style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary),
-                ),
-              );
-            }
-            if (line.startsWith('- ')) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('• ', style: TextStyle(fontSize: 13)),
-                    Expanded(child: Text(line.substring(2),
-                        style: const TextStyle(fontSize: 13))),
-                  ],
-                ),
-              );
-            }
-            if (RegExp(r'^!\[\d+\]').hasMatch(line)) {
-              return Container(
-                height: 60,
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.modeActive,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: const Center(
-                  child: Icon(Icons.image_outlined,
-                      color: AppColors.primary, size: 24),
-                ),
-              );
-            }
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(line, style: const TextStyle(fontSize: 13)),
-            );
-          }),
-          if (steps.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            const Text('Action Plan',
-                style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primaryDark)),
-            const SizedBox(height: 4),
-            ...steps.asMap().entries.map((e) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 20,
-                    height: 20,
-                    decoration: const BoxDecoration(
-                        color: AppColors.primary, shape: BoxShape.circle),
-                    alignment: Alignment.center,
-                    child: Text('${e.key + 1}',
-                        style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: Text(e.value,
-                          style: const TextStyle(fontSize: 13))),
-                ],
-              ),
-            )),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
 // ─── Location Picker ───────────────────────────────────────────────────────
 
 class _LocationPickerScreen extends StatefulWidget {
   final LatLng initialLocation;
-  final LatLng? currentGps; // 青い点の位置
+  final LatLng? currentGps; // position for the blue GPS dot
   const _LocationPickerScreen({required this.initialLocation, this.currentGps});
 
   @override
@@ -1425,7 +1505,7 @@ class __LocationPickerScreenState extends State<_LocationPickerScreen> {
                       userAgentPackageName: 'com.agridic.app',
                       maxZoom: 19,
                     ),
-                    // 現在地の青い点
+                    // Blue dot for the user's current GPS position
                     if (widget.currentGps != null)
                       MarkerLayer(markers: [
                         Marker(
@@ -1437,11 +1517,11 @@ class __LocationPickerScreenState extends State<_LocationPickerScreen> {
                       ]),
                   ],
                 ),
-                // 中心ピン（ここに投稿される）
+                // Center pin — the post will be attached to this location
                 const IgnorePointer(
                   child: Icon(Icons.location_on, color: AppColors.primary, size: 40),
                 ),
-                // 座標表示
+                // Coordinate display overlay
                 Positioned(
                   bottom: 16,
                   left: 16,
@@ -1468,7 +1548,7 @@ class __LocationPickerScreenState extends State<_LocationPickerScreen> {
   }
 }
 
-// Google Maps スタイルの現在地ドット
+// Google Maps-style current location dot
 class _CurrentLocationDot extends StatelessWidget {
   const _CurrentLocationDot();
 

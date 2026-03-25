@@ -560,7 +560,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
     );
   }
 
-  // ─── 管理画面 ────────────────────────────────────────────────────────────
+  // ─── Management screen ───────────────────────────────────────────────────
 
   void _openManage(BuildContext context, AppState state) {
     final officialPosts = state.posts.where((p) => p.isOfficial && !p.isHidden).toList()
@@ -659,7 +659,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
   }
 }
 
-// ─── 辞書設定シート ──────────────────────────────────────────────────────────
+// ─── Dictionary config sheet ─────────────────────────────────────────────────
 
 class _DictConfigSheet extends StatefulWidget {
   final Post post;
@@ -678,7 +678,7 @@ class __DictConfigSheetState extends State<_DictConfigSheet> {
   late final List<String> _tags;
   bool _saving = false;
 
-  // 標準候補（辞書が空でも必ず表示される）
+  // Default suggestions (always shown even if the dictionary is empty)
   static const _defaultCrops = [
     'Maize', 'Tomato', 'Bean', 'Potato', 'Coffee', 'Rice', 'Wheat',
     'Sorghum', 'Cassava', 'Sweet Potato', 'Banana', 'Mango',
@@ -707,7 +707,7 @@ class __DictConfigSheetState extends State<_DictConfigSheet> {
     super.dispose();
   }
 
-  // 既存 + デフォルト候補（重複除去・ソート）
+  // Existing + default suggestions (deduplicated and sorted)
   List<String> _allCrops() {
     final fromPosts = widget.state.posts
         .where((p) => p.isOfficial && p.dictCrop.isNotEmpty)
@@ -736,7 +736,7 @@ class __DictConfigSheetState extends State<_DictConfigSheet> {
       },
       onSelected: (s) => setState(() => controller.text = s),
       fieldViewBuilder: (ctx, fieldCtrl, focusNode, _) {
-        // fieldCtrl の変化を controller に反映
+        // Mirror fieldCtrl changes into controller
         fieldCtrl.addListener(() => controller.text = fieldCtrl.text);
         return TextField(
           controller: fieldCtrl,

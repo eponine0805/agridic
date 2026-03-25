@@ -29,7 +29,7 @@ class _RegisterProfileScreenState extends State<RegisterProfileScreen> {
       await context.read<UserPrefs>().updateBio(bio);
     }
     if (!mounted) return;
-    // LoginScreen まで全部 pop → _StartupRouter が続きを処理
+    // Pop all the way back to LoginScreen — _StartupRouter handles the rest
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
@@ -49,7 +49,7 @@ class _RegisterProfileScreenState extends State<RegisterProfileScreen> {
         backgroundColor: AppColors.background,
         elevation: 0,
         foregroundColor: AppColors.textPrimary,
-        automaticallyImplyLeading: false, // 戻るボタン非表示（登録フロー）
+        automaticallyImplyLeading: false, // hide back button (registration flow)
         title: const Text('Set up your profile',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         actions: [
@@ -70,7 +70,7 @@ class _RegisterProfileScreenState extends State<RegisterProfileScreen> {
             children: [
               const SizedBox(height: 8),
 
-              // ── ステップ表示 ──
+              // ── Step indicator ──
               Row(
                 children: [
                   _StepChip(step: 1, label: 'Account', active: false),
@@ -84,7 +84,7 @@ class _RegisterProfileScreenState extends State<RegisterProfileScreen> {
 
               const SizedBox(height: 36),
 
-              // ── アバターエリア ──
+              // ── Avatar area ──
               Center(
                 child: Column(
                   children: [
@@ -108,7 +108,7 @@ class _RegisterProfileScreenState extends State<RegisterProfileScreen> {
                                         fontWeight: FontWeight.bold),
                                   ),
                                 ),
-                          // カメラアイコンバッジ
+                          // Camera icon badge
                           Positioned(
                             right: 0,
                             bottom: 0,
@@ -141,7 +141,7 @@ class _RegisterProfileScreenState extends State<RegisterProfileScreen> {
 
               const SizedBox(height: 36),
 
-              // ── Bio フィールド ──
+              // ── Bio field ──
               const Text(
                 'Bio  (optional)',
                 style: TextStyle(
@@ -170,7 +170,7 @@ class _RegisterProfileScreenState extends State<RegisterProfileScreen> {
 
               const SizedBox(height: 28),
 
-              // ── Done ボタン ──
+              // ── Done button ──
               SizedBox(
                 height: 50,
                 child: ElevatedButton(
@@ -196,7 +196,7 @@ class _RegisterProfileScreenState extends State<RegisterProfileScreen> {
 
               const SizedBox(height: 16),
 
-              // ── Skip リンク ──
+              // ── Skip link ──
               Center(
                 child: TextButton(
                   onPressed: _saving ? null : _skip,

@@ -19,14 +19,14 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   late String _activeTab;
-  // 一度でも表示したタブを記録（遅延レンダリング用）
+  // Track which tabs have been shown at least once (for lazy rendering)
   final Set<String> _loadedTabs = {};
 
   @override
   void initState() {
     super.initState();
     final available = _availableModes();
-    // テキストモードが存在すれば優先、なければ viewMode、なければ最初のもの
+    // Prefer text mode if available, then fall back to viewMode, then the first available mode
     if (available.contains('text')) {
       _activeTab = 'text';
     } else if (available.contains(widget.post.viewMode)) {
@@ -37,7 +37,7 @@ class _DetailScreenState extends State<DetailScreen> {
     _loadedTabs.add(_activeTab);
   }
 
-  /// 実際にコンテンツが入力されているモードのみ返す
+  /// Returns only modes that actually have content.
   List<String> _availableModes() {
     if (!widget.post.isOfficial) return [];
     final c = widget.post.content;
@@ -229,15 +229,15 @@ class _DetailScreenState extends State<DetailScreen> {
     final state = context.watch<AppState>();
     final prefs = context.read<UserPrefs>();
 
-    // AppState のメモリ上のリストから投稿が消えていたら自動で閉じる
-    // Firestore ストリームは使わず追加読み取り 0
+    // Auto-close if the post has been removed from AppState's in-memory list.
+    // Zero extra Firestore reads — no stream required.
     final postExists = state.posts.any((p) => p.postId == widget.post.postId);
     if (!postExists && state.posts.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           Navigator.of(context).pop();
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('この投稿は削除されました')),
+            const SnackBar(content: Text('This post has been deleted')),
           );
         }
       });
@@ -320,7 +320,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       ],
                     ),
                   ),
-                  // 複数モードがある場合のみタブを表示
+                  // Only show mode tabs when more than one mode has content
                   if (showTabs) _buildModeTabs(available),
                 ],
               ),
@@ -358,7 +358,7 @@ class _DetailScreenState extends State<DetailScreen> {
             child: GestureDetector(
               onTap: () => setState(() {
                 _activeTab = mode;
-                _loadedTabs.add(mode); // 初めてタップしたときに読み込み
+                _loadedTabs.add(mode); // mark as loaded on first tap
               }),
               child: Container(
                 margin: const EdgeInsets.only(right: 4),
@@ -394,7 +394,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildContent() {
-    // 非公式投稿（ツイート）
+    // Non-official post (tweet)
     if (!widget.post.isOfficial) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -414,7 +414,7 @@ class _DetailScreenState extends State<DetailScreen> {
       );
     }
 
-    // 未ロードのタブはローディング表示（遅延レンダリング）
+    // Show a loading indicator for tabs that haven't been rendered yet (lazy rendering)
     if (!_loadedTabs.contains(_activeTab)) {
       return const Center(
           child: Padding(
@@ -426,9 +426,12 @@ class _DetailScreenState extends State<DetailScreen> {
     final fullText = _getTextForMode(_activeTab);
     final imgs = widget.post.content.images;
 
+    // Use high-resolution images for dictionary entries, low-res for regular posts
+    final useHigh = widget.post.inDictionary;
+
     if (_activeTab == 'text') {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        RichTextContent(text: fullText, images: imgs, useHighRes: false),
+        RichTextContent(text: fullText, images: imgs, useHighRes: useHigh),
         if (widget.post.content.steps.isNotEmpty) ...[
           const SizedBox(height: 12),
           StepsCard(steps: widget.post.content.steps),
@@ -436,7 +439,7 @@ class _DetailScreenState extends State<DetailScreen> {
       ]);
     } else if (_activeTab == 'manual') {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        RichTextContent(text: fullText, images: imgs, useHighRes: true),
+        RichTextContent(text: fullText, images: imgs, useHighRes: useHigh),
         if (widget.post.content.steps.isNotEmpty) ...[
           const SizedBox(height: 12),
           StepsCard(steps: widget.post.content.steps),

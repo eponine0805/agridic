@@ -65,7 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const SizedBox(height: 48),
 
-              // ── ロゴ ──
+              // ── Logo ──
               Row(
                 children: [
                   const Icon(Icons.eco, color: AppColors.primary, size: 36),
@@ -91,7 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 36),
 
-              // ── Sign In カード ──
+              // ── Sign In card ──
               Container(
                 decoration: BoxDecoration(
                   color: AppColors.surface,
@@ -205,7 +205,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
 
-              // ── エラー ──
+              // ── Error ──
               if (_error != null) ...[
                 const SizedBox(height: 14),
                 Container(
@@ -234,7 +234,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 32),
 
-              // ── 新規登録リンク ──
+              // ── Sign-up link ──
               const Divider(),
               const SizedBox(height: 16),
               Center(

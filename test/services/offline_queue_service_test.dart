@@ -31,7 +31,7 @@ void main() {
 
       final items = await OfflineQueueService.getAll();
       expect(items.length, 1);
-      // 新フォーマット: {'post': {...}} でラップされている
+      // New format: wrapped as {'post': {...}}
       expect(items[0].containsKey('post'), isTrue);
       expect((items[0]['post'] as Map)['postId'], 'p1');
     });
@@ -143,7 +143,7 @@ void main() {
 
   group('backward compatibility (old plain-postJson format)', () {
     test('old format without post wrapper is still readable', () async {
-      // 旧フォーマット: post.toJson() を 'post' キーでラップせず直接格納
+      // Old format: post.toJson() stored directly without the 'post' key wrapper
       final post = _makePost('old_1');
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
@@ -153,7 +153,7 @@ void main() {
 
       final items = await OfflineQueueService.getAll();
       expect(items.length, 1);
-      // 旧フォーマットは 'post' キーを持たない — そのまま postJson として扱われる
+      // Old format has no 'post' key — treated directly as postJson
       expect(items[0].containsKey('post'), isFalse);
       expect(items[0]['postId'], 'old_1');
     });

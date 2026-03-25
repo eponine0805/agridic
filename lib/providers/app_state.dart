@@ -12,14 +12,18 @@ class AppState extends ChangeNotifier {
   (double, double) currentLocation = (-0.95, 36.87);
   bool locationReady = false;
   bool isDetectingLocation = false;
+  bool locationPermissionDeniedForever = false;
 
   List<Post> _posts = [];
-  List<Post>? _visiblePostsCache; // visiblePosts のメモ化キャッシュ
+  List<Post>? _visiblePostsCache; // memoized cache for visiblePosts
   bool isLoading = true;
   bool isSeeding = false;
   bool _loadingMore = false;
   bool _hasMore = true;
   DocumentSnapshot? _lastDoc;
+
+  /// Non-null when the last _loadInitial call failed.
+  String? lastLoadError;
 
   bool isOnline = true;
   int pendingQueueCount = 0;
@@ -68,8 +72,9 @@ class AppState extends ChangeNotifier {
     final items = await OfflineQueueService.getAll();
     if (items.isEmpty) return;
 
-    // 先頭から順に処理し、成功したものを1件ずつキューから削除する
-    // → クラッシュしても処理済み画像URLがキューに保存されており、再起動後に重複アップロードしない
+    // Process entries in order, removing each from the queue after success.
+    // If the app crashes mid-upload, already-uploaded image URLs are preserved
+    // in the queue entry so they are not re-uploaded on the next retry.
     int offset = 0;
     for (var i = 0; i < items.length; i++) {
       var data = items[i];
@@ -79,9 +84,9 @@ class AppState extends ChangeNotifier {
             ? (data['post'] as Map<String, dynamic>)
             : data;
         var post = Post.fromMap(postData);
-        var dirty = false; // キューエントリを更新すべきか
+        var dirty = false; // whether the queue entry needs updating
 
-        // ツイート画像のローカルパスがあればアップロード
+        // Upload tweet image if a local path is still stored
         final tweetImagePath = data['localTweetImagePath'] as String?;
         if (tweetImagePath != null &&
             !tweetImagePath.startsWith('http') &&
@@ -94,7 +99,7 @@ class AppState extends ChangeNotifier {
               _contentWith(post.content,
                   imageLow: urls.low, imageHigh: urls.high),
             );
-            // アップロード済み URL をキューエントリへ反映（クラッシュ再試行時に再アップロードしない）
+            // Persist uploaded URL to the queue entry to prevent re-uploading on retry
             final updatedEntry = Map<String, dynamic>.from(data);
             updatedEntry['post'] = post.toJson();
             updatedEntry.remove('localTweetImagePath');
@@ -106,7 +111,7 @@ class AppState extends ChangeNotifier {
           }
         }
 
-        // レポートのブロック画像（ローカルパスが残っている場合）
+        // Upload any report block images still stored as local paths
         if (post.content.images.any((img) =>
             !img.startsWith('http') && !img.startsWith('data:'))) {
           final updated = <String>[];
@@ -119,7 +124,7 @@ class AppState extends ChangeNotifier {
                 updated.add(urls.high.isNotEmpty ? urls.high : urls.low);
               } catch (e) {
                 debugPrint('[OfflineQueue] block image upload failed ($j): $e');
-                updated.add(img); // 失敗したままにして次回再試行
+                updated.add(img); // keep local path for next retry
               }
             } else {
               updated.add(img);
@@ -129,7 +134,7 @@ class AppState extends ChangeNotifier {
           dirty = true;
         }
 
-        // アップロード済み URL をキューへ反映（Firestore書き込み前に保存）
+        // Persist uploaded URLs before writing to Firestore (crash-safe)
         if (dirty) {
           final updatedEntry = Map<String, dynamic>.from(data);
           updatedEntry['post'] = post.toJson();
@@ -138,17 +143,17 @@ class AppState extends ChangeNotifier {
 
         await FirebaseService.savePost(post);
 
-        // Firestore書き込み成功後に1件削除
+        // Remove the successfully processed entry from the queue
         await OfflineQueueService.removeAt(i - offset);
-        offset++; // 削除した分だけインデックスをずらす
+        offset++; // adjust index for subsequent removals
       } catch (e) {
         debugPrint('[OfflineQueue] failed to process queued post: $e');
-        // 失敗したエントリはキューに残し、次回オンライン復帰時に再試行
+        // Leave the failed entry in the queue for the next online reconnect
       }
     }
 
     pendingQueueCount = await OfflineQueueService.count();
-    // 投稿反映のためリフレッシュ
+    // Refresh feed to surface newly posted items
     if (pendingQueueCount == 0) await _loadInitial();
     notifyListeners();
   }
@@ -159,7 +164,7 @@ class AppState extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Post を新しい PostContent で再生成するヘルパー
+  /// Returns a new Post built from [post] with [content] replaced.
   Post _rebuildPost(Post post, PostContent content) => Post(
         postId: post.postId,
         userId: post.userId,
@@ -182,7 +187,7 @@ class AppState extends ChangeNotifier {
         inDictionary: post.inDictionary,
       );
 
-  /// PostContent の一部フィールドだけ差し替えるヘルパー
+  /// Returns a new PostContent with only the specified fields overridden.
   PostContent _contentWith(PostContent c,
           {String? imageLow, String? imageHigh, List<String>? images}) =>
       PostContent(
@@ -198,11 +203,11 @@ class AppState extends ChangeNotifier {
 
   List<Post> get posts => _posts;
 
-  /// isHidden でないポストのリスト（メモ化：_posts が差し替わるまでキャッシュを再利用）
+  /// Visible (non-hidden) posts — memoized until [_posts] is replaced.
   List<Post> get visiblePosts => _visiblePostsCache ??=
       _posts.where((p) => !p.isHidden).toList();
 
-  /// _posts を差し替えるときはキャッシュを同時に無効化する
+  /// Replace the post list and invalidate the memoized cache.
   void _setPosts(List<Post> newPosts) {
     _posts = newPosts;
     _visiblePostsCache = null;
@@ -211,7 +216,7 @@ class AppState extends ChangeNotifier {
   List<Post> get officialPosts =>
       visiblePosts.where((p) => p.isOfficial && p.inDictionary).toList();
 
-  // ─── 読み込み ──────────────────────────────────────────────────
+  // ─── Loading ────────────────────────────────────────────────────────────
 
   Future<void> _loadInitial() async {
     isLoading = true;
@@ -221,15 +226,17 @@ class AppState extends ChangeNotifier {
       _setPosts(result.posts);
       _lastDoc = result.lastDoc;
       _hasMore = result.posts.length >= 20;
+      lastLoadError = null;
     } catch (e) {
       debugPrint('[AppState] _loadInitial failed: $e');
+      lastLoadError = 'Failed to load posts. Check your connection and try again.';
     }
     isLoading = false;
     notifyListeners();
   }
 
-  /// 上に引っ張って更新 — 直近の投稿より新しいものだけ取得して先頭に追加
-  /// 新着3件なら3 reads、新着なしなら0 reads
+  /// Pull-to-refresh — fetches only posts newer than the top of the list.
+  /// Costs 0 reads if there are no new posts.
   Future<void> refresh() async {
     try {
       final since = _posts.isNotEmpty ? _posts.first.timestamp : null;
@@ -242,12 +249,13 @@ class AppState extends ChangeNotifier {
         _setPosts([...newPosts, ..._posts]);
         notifyListeners();
       }
+      lastLoadError = null;
     } catch (e) {
       debugPrint('[AppState] refresh failed: $e');
     }
   }
 
-  /// 下スクロールで追加読み込み
+  /// Load additional pages when the user scrolls to the bottom.
   Future<void> loadMore() async {
     if (_loadingMore || !_hasMore || _lastDoc == null) return;
     _loadingMore = true;
@@ -255,7 +263,7 @@ class AppState extends ChangeNotifier {
     try {
       final result = await FirebaseService.fetchPostsPage(after: _lastDoc);
       if (result.posts.isNotEmpty) {
-      _setPosts([..._posts, ...result.posts]);
+        _setPosts([..._posts, ...result.posts]);
         _lastDoc = result.lastDoc ?? _lastDoc;
         _hasMore = result.posts.length >= 20;
       } else {
@@ -268,7 +276,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ─── 位置情報 ────────────────────────────────────────────────────
+  // ─── Location ────────────────────────────────────────────────────────────
 
   Future<void> detectLocation() async {
     isDetectingLocation = true;
@@ -278,12 +286,18 @@ class AppState extends ChangeNotifier {
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
       }
-      if (perm == LocationPermission.deniedForever ||
-          perm == LocationPermission.denied) {
+      if (perm == LocationPermission.deniedForever) {
+        locationPermissionDeniedForever = true;
         isDetectingLocation = false;
         notifyListeners();
         return;
       }
+      if (perm == LocationPermission.denied) {
+        isDetectingLocation = false;
+        notifyListeners();
+        return;
+      }
+      locationPermissionDeniedForever = false;
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.medium,
         timeLimit: const Duration(seconds: 10),
@@ -297,7 +311,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ─── フィルタリング ───────────────────────────────────────────────
+  // ─── Filtering ───────────────────────────────────────────────────────────
 
   List<Post> filteredPosts({
     String crop = '',
@@ -341,7 +355,7 @@ class AppState extends ChangeNotifier {
     return result;
   }
 
-  // ─── 操作 ───────────────────────────────────────────────────────
+  // ─── Actions ─────────────────────────────────────────────────────────────
 
   Future<void> toggleLike(
       String postId, String userId, String likerName) async {
@@ -350,7 +364,7 @@ class AppState extends ChangeNotifier {
     final post = _posts[idx];
     final alreadyLiked = post.likedBy.contains(userId);
 
-    // copyWith で新しい Post インスタンスを作って楽観的更新（直接ミューテーションなし）
+    // Optimistic update — create a new Post instance, no direct mutation
     final optimistic = alreadyLiked
         ? post.copyWith(
             likes: post.likes - 1,
@@ -366,24 +380,24 @@ class AppState extends ChangeNotifier {
 
     try {
       await FirebaseService.toggleLike(postId, userId, alreadyLiked);
-      // いいね追加時にカウンターをインクリメント（自分の投稿でない場合のみ）
+      // Increment the notification counter only when liking someone else's post
       if (!alreadyLiked && post.userId != userId) {
         await FirebaseService.incrementLikeCount(post.userId);
       }
     } catch (_) {
-      // Firestore 失敗時はロールバック（元の post に戻す）
+      // Roll back to the original post on Firestore failure
       _posts[idx] = post;
       _visiblePostsCache = null;
       notifyListeners();
     }
   }
 
-  /// 投稿のコンテンツをローカル + Firestore で更新（編集用）
+  /// Update a post's content locally and in Firestore (used for editing).
   Future<void> editPost(
       String postId, PostContent newContent, String editorUid) async {
     final idx = _posts.indexWhere((p) => p.postId == postId);
     if (idx < 0) return;
-    // 楽観的更新（ロールバック用に元の投稿を退避）
+    // Optimistic update — keep original for rollback
     final original = _posts[idx];
     final now = DateTime.now();
     _posts[idx] = original.copyWith(
@@ -393,7 +407,7 @@ class AppState extends ChangeNotifier {
     try {
       await FirebaseService.editPost(postId, newContent, editorUid);
     } catch (e) {
-      // ロールバック
+      // Roll back on failure
       _posts[idx] = original;
       _visiblePostsCache = null;
       notifyListeners();
@@ -401,14 +415,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// 投稿をローカルリストから削除
+  /// Remove a post from the local list.
   void removePost(String postId) {
     _posts.removeWhere((p) => p.postId == postId);
-    _visiblePostsCache = null; // キャッシュ無効化
+    _visiblePostsCache = null;
     notifyListeners();
   }
 
-  /// Firestoreから最新の投稿を取得してローカルを更新
+  /// Fetch the latest version of a post from Firestore and update locally.
   Future<void> reloadPost(String postId) async {
     try {
       final updated = await FirebaseService.fetchPostById(postId);
@@ -419,7 +433,7 @@ class AppState extends ChangeNotifier {
       final idx = _posts.indexWhere((p) => p.postId == postId);
       if (idx >= 0) {
         _posts[idx] = updated;
-        _visiblePostsCache = null; // キャッシュ無効化
+        _visiblePostsCache = null;
         notifyListeners();
       }
     } catch (e) {
@@ -427,27 +441,28 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// 投稿を追加（オフライン時はキューに保存）
-  /// [localTweetImagePath]: オフライン時の添付画像ローカルパス。
-  ///   オンライン復帰時に自動アップロードされる。
-  /// 戻り値: true = オンライン投稿成功 / false = オフラインキュー保存 / null = キュー満杯
+  /// Add a post, queuing it offline if there is no connection.
+  ///
+  /// Returns `true`  — posted online successfully.
+  /// Returns `false` — saved to the offline queue.
+  /// Returns `null`  — offline queue is full.
   Future<bool?> addPost(Post post, {String? localTweetImagePath}) async {
     if (!isOnline) {
       final queued = await OfflineQueueService.enqueue(post,
           localTweetImagePath: localTweetImagePath);
-      if (!queued) return null; // キュー満杯
+      if (!queued) return null; // queue full
       pendingQueueCount = await OfflineQueueService.count();
       notifyListeners();
-      return false; // オフラインキューに保存
+      return false; // saved to offline queue
     }
     await FirebaseService.savePost(post);
-    // 先頭ページを再取得して新投稿を即座に反映
+    // Re-fetch first page to surface the new post immediately
     final result = await FirebaseService.fetchPostsPage();
-      _setPosts(result.posts);
+    _setPosts(result.posts);
     _lastDoc = result.lastDoc;
     _hasMore = result.posts.length >= 20;
     notifyListeners();
-    return true; // オンライン投稿成功
+    return true; // online post succeeded
   }
 
   Future<bool> seedDemoData() async {
@@ -465,13 +480,13 @@ class AppState extends ChangeNotifier {
     return seeded;
   }
 
-  /// デモデータを強制投入してフィードを更新（デバッグ用）
+  /// Force-seed demo data and refresh the feed (used by admin tools).
   Future<void> forceSeedDemoData() async {
     isSeeding = true;
     notifyListeners();
     await FirebaseService.forceSeedDemoData();
     final result = await FirebaseService.fetchPostsPage();
-      _setPosts(result.posts);
+    _setPosts(result.posts);
     _lastDoc = result.lastDoc;
     _hasMore = result.posts.length >= 20;
     isSeeding = false;

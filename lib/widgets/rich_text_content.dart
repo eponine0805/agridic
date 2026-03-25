@@ -7,7 +7,7 @@ class RichTextContent extends StatelessWidget {
   final String text;
   final List<String> images;
   final bool stripImages;
-  /// true のとき画像をフル解像度で表示（CachedNetworkImage使用）
+  /// When true, displays images at full resolution using CachedNetworkImage.
   final bool useHighRes;
 
   const RichTextContent({
@@ -105,7 +105,7 @@ class RichTextContent extends StatelessWidget {
   }
 
   static Widget _buildNetworkImage(String url, {bool highRes = true}) {
-    // base64 data URL（Storage未設定時のフォールバック）
+    // base64 data URL (fallback when Firebase Storage is not configured)
     if (url.startsWith('data:image')) {
       try {
         final base64Data = url.split(',').last;
