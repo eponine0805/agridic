@@ -24,6 +24,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // Filter panel state
   bool _filtersVisible = false;
   bool _cropsExpanded = false;
+  bool _categoryExpanded = false;
+  bool _typeExpanded = false;
 
   final _ownScrollCtrl = ScrollController();
   ScrollController get _scrollCtrl =>
@@ -131,80 +133,105 @@ class _HomeScreenState extends State<HomeScreen> {
           const Divider(height: 1, color: AppColors.divider),
           const SizedBox(height: 10),
           // ── Category section ───────────────────────────────────
-          const Text('Category',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary)),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: _categoryFilters.map((entry) {
-              final (value, label) = entry;
-              final selected = _categoryFilter == value;
-              return FilterChip(
-                label: Text(label,
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: selected
-                            ? Colors.white
-                            : AppColors.textSecondary)),
-                selected: selected,
-                onSelected: (_) =>
-                    setState(() => _categoryFilter = selected ? '' : value),
-                selectedColor: AppColors.accent,
-                checkmarkColor: Colors.white,
-                backgroundColor: AppColors.background,
-                side: BorderSide(
-                    color:
-                        selected ? AppColors.accent : AppColors.divider),
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                visualDensity: VisualDensity.compact,
-              );
-            }).toList(),
+          _FilterSectionHeader(
+            label: 'Category',
+            isExpanded: _categoryExpanded,
+            isActive: _categoryFilter.isNotEmpty,
+            selectedValue: _categoryFilter.isNotEmpty
+                ? _categoryFilters
+                    .firstWhere((e) => e.$1 == _categoryFilter,
+                        orElse: () => ('', _categoryFilter))
+                    .$2
+                : null,
+            onTap: () =>
+                setState(() => _categoryExpanded = !_categoryExpanded),
+            onClear: _categoryFilter.isNotEmpty
+                ? () => setState(() => _categoryFilter = '')
+                : null,
           ),
+          if (_categoryExpanded) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: _categoryFilters.map((entry) {
+                final (value, label) = entry;
+                final selected = _categoryFilter == value;
+                return FilterChip(
+                  label: Text(label,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: selected
+                              ? Colors.white
+                              : AppColors.textSecondary)),
+                  selected: selected,
+                  onSelected: (_) =>
+                      setState(() => _categoryFilter = selected ? '' : value),
+                  selectedColor: AppColors.accent,
+                  checkmarkColor: Colors.white,
+                  backgroundColor: AppColors.background,
+                  side: BorderSide(
+                      color:
+                          selected ? AppColors.accent : AppColors.divider),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  visualDensity: VisualDensity.compact,
+                );
+              }).toList(),
+            ),
+          ],
           const SizedBox(height: 10),
           const Divider(height: 1, color: AppColors.divider),
           const SizedBox(height: 10),
           // ── Post type section ──────────────────────────────────
-          const Text('Post type',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary)),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: [
-              for (final entry in const [
-                ('all', 'All'),
-                ('official', 'Official'),
-                ('community', 'Community'),
-              ])
-                FilterChip(
-                  label: Text(entry.$2,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: _typeFilter == entry.$1
-                              ? Colors.white
-                              : AppColors.textSecondary)),
-                  selected: _typeFilter == entry.$1,
-                  onSelected: (_) =>
-                      setState(() => _typeFilter = entry.$1),
-                  selectedColor: AppColors.primary,
-                  checkmarkColor: Colors.white,
-                  backgroundColor: AppColors.background,
-                  side: BorderSide(
-                      color: _typeFilter == entry.$1
-                          ? AppColors.primary
-                          : AppColors.divider),
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  visualDensity: VisualDensity.compact,
-                ),
-            ],
+          _FilterSectionHeader(
+            label: 'Post type',
+            isExpanded: _typeExpanded,
+            isActive: _typeFilter != 'all',
+            selectedValue: _typeFilter != 'all'
+                ? const [('all', 'All'), ('official', 'Official'), ('community', 'Community')]
+                    .firstWhere((e) => e.$1 == _typeFilter,
+                        orElse: () => ('all', 'All'))
+                    .$2
+                : null,
+            onTap: () => setState(() => _typeExpanded = !_typeExpanded),
+            onClear: _typeFilter != 'all'
+                ? () => setState(() => _typeFilter = 'all')
+                : null,
           ),
+          if (_typeExpanded) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                for (final entry in const [
+                  ('all', 'All'),
+                  ('official', 'Official'),
+                  ('community', 'Community'),
+                ])
+                  FilterChip(
+                    label: Text(entry.$2,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: _typeFilter == entry.$1
+                                ? Colors.white
+                                : AppColors.textSecondary)),
+                    selected: _typeFilter == entry.$1,
+                    onSelected: (_) =>
+                        setState(() => _typeFilter = entry.$1),
+                    selectedColor: AppColors.primary,
+                    checkmarkColor: Colors.white,
+                    backgroundColor: AppColors.background,
+                    side: BorderSide(
+                        color: _typeFilter == entry.$1
+                            ? AppColors.primary
+                            : AppColors.divider),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+          ],
           // Clear all
           if (_hasActiveFilters) ...[
             const SizedBox(height: 10),
@@ -507,7 +534,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const Text('No posts yet',
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 15)),
             const SizedBox(height: 8),
-            const Text('Seed demo data from the top-right menu',
+            const Text('Be the first to post something!',
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
           ],
         ),

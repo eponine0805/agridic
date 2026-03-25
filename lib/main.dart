@@ -320,67 +320,6 @@ class _MainShellState extends State<MainShell> {
             );
           },
         ),
-        Consumer2<AppState, UserPrefs>(
-          builder: (context, state, userPrefs, _) {
-            return PopupMenuButton<String>(
-              icon: state.isSeeding
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2),
-                    )
-                  : const Icon(Icons.more_vert, color: Colors.white),
-              onSelected: (value) async {
-                if (value == 'seed') {
-                  final seeded = await state.seedDemoData();
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(seeded
-                        ? 'Added 9 demo posts to Firestore'
-                        : 'Data already exists — skipped'),
-                    backgroundColor:
-                        seeded ? AppColors.primary : Colors.grey,
-                    duration: const Duration(seconds: 3),
-                  ));
-                } else if (value == 'force_seed') {
-                  await state.forceSeedDemoData();
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('[Debug] Demo data loaded to Firestore'),
-                    backgroundColor: AppColors.accent,
-                    duration: Duration(seconds: 3),
-                  ));
-                }
-              },
-              itemBuilder: (_) => [
-                if (userPrefs.isAdmin) ...[
-                  const PopupMenuItem(
-                    value: 'seed',
-                    child: Row(
-                      children: [
-                        Icon(Icons.cloud_upload_outlined, size: 18),
-                        SizedBox(width: 8),
-                        Text('Seed demo data (skip if exists)'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'force_seed',
-                    child: Row(
-                      children: [
-                        Icon(Icons.bug_report_outlined, size: 18, color: AppColors.accent),
-                        SizedBox(width: 8),
-                        Text('[Debug] Force load demo data',
-                            style: TextStyle(color: AppColors.accent)),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            );
-          },
-        ),
       ],
       elevation: 2,
     );
