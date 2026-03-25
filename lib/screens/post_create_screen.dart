@@ -859,25 +859,6 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     ]),
                     Row(children: [
-                    if (_postType == 'report')
-                      PopupMenuButton<String>(
-                        icon: const Icon(Icons.more_vert, color: Colors.white, size: 22),
-                        itemBuilder: (_) => [
-                          const PopupMenuItem(
-                            value: 'excel',
-                            child: Row(
-                              children: [
-                                Icon(Icons.table_view_outlined, size: 16, color: AppColors.primary),
-                                SizedBox(width: 8),
-                                Text('Import Excel (.xlsx)'),
-                              ],
-                            ),
-                          ),
-                        ],
-                        onSelected: (v) {
-                          if (v == 'excel') _importFromExcel();
-                        },
-                      ),
                     SegmentedButton<String>(
                       selected: {_postType},
                       onSelectionChanged: (s) => setState(() => _postType = s.first),
@@ -1016,10 +997,29 @@ class _PostCreateScreenState extends State<PostCreateScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Row(children: [
-          Icon(Icons.verified_user, size: 20, color: AppColors.primary),
-          SizedBox(width: 8),
-          Text('Create Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        Row(children: [
+          const Icon(Icons.verified_user, size: 20, color: AppColors.primary),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('Create Report', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, size: 20, color: AppColors.textSecondary),
+            padding: EdgeInsets.zero,
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'excel',
+                child: Row(
+                  children: [
+                    Icon(Icons.table_view_outlined, size: 16, color: AppColors.primary),
+                    SizedBox(width: 8),
+                    Text('Import Excel (.xlsx)'),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (v) {
+              if (v == 'excel') _importFromExcel();
+            },
+          ),
         ]),
         const SizedBox(height: 12),
         _buildField(_rptTitleCtrl, 'Report headline (shown on timeline)'),
