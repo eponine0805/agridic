@@ -207,7 +207,7 @@ class CachedMapTileProvider extends TileProvider {
   final String cacheDirPath;
   static const _base = 'https://a.basemaps.cartocdn.com/rastertiles/voyager';
 
-  const CachedMapTileProvider({required this.cacheDirPath});
+  CachedMapTileProvider({required this.cacheDirPath});
 
   @override
   ImageProvider<Object> getImage(
